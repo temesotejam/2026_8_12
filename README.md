@@ -1,196 +1,210 @@
-# CoreS3 local simulation experiment
+# CoreS3 / XIAO local simulation experiment
 
-This repository is a deterministic native-C++ simulation environment for checking M5Stack CoreS3 / XIAO application behavior without depending on a hosted simulator for every run. It is a behavior- and protocol-level simulator, not an ESP32-S3 instruction or electrical emulator.
+This repository is a deterministic native-C++ simulation and verification environment for M5Stack CoreS3 / XIAO boat software. It is designed to check application behavior, device faults, inter-controller UART behavior, production packet handling, production controller logic, and hardware-log agreement in GitHub Actions without consuming hosted simulator runs.
+
+It is **not** an ESP32-S3 instruction-level or electrical emulator.
+
+## Current layers
 
 ```text
-single-controller device simulation
+Phase 1-6: device/application simulation
 
 scenario
    |
-   +--> virtual I2C bus --> VirtualBno08x ----> SensorSample
-   |                   |-> VirtualIna226 ----> SensorSample
-   |                   \-> VirtualVl53l5cx --> SensorSample
-   |
-   +--> virtual UART ----> GNSS stream ------> SensorSample
-   +--> virtual SD + timing health ----------> SensorSample
-                                               |
-                                               v
-                                            App logic
-                                               |
-                                               v
-                                        SVG screen + trace
-
-phase-7 abstract two-controller simulation
-
-COMM controller <==== VirtualDuplexUart 921600 8N1 ====> CONTROL controller
-
-phase-8 production-protocol simulation
-
-COMM XIAO
-   |  boat::Header + real payload + CRC32
-   |  COBS encoded + 0x00 delimiter
-   |  921600 baud / 8N1
-   v
-ProductionUartLink
+   +--> virtual I2C --> BNO08X / INA226 / VL53L5CX
+   +--> virtual UART --> GNSS
+   +--> virtual SD / timing faults
    |
    v
-CONTROL XIAO production boat::Decoder
+portable App logic
+   |
+   v
+SVG + trace.csv
+
+Phase 7: abstract two-controller transport
+
+COMM <==== 921600 bps 8N1 virtual UART ====> CONTROL
+
+Phase 8-9: production protocol/control path
+
+COMM host adapter
+   |
+   | real boat::Header / packed payload / CRC32 / COBS / 0x00
+   v
+ProductionUartLink 921600 8N1
+   |
+   v
+CONTROL production boat::Decoder
+   |
+   +--> production CommandIngress / replay window / Controller::step()
+   |
+   +--> ControlOutput / ControlSnapshot / INA / VESC / Actuator / Health
+
+Phase 10: hardware-log comparison
+
+real BOAT_*.BIN -----> BOATLOG1 parser -----+
+                                             +--> nearest-time comparison
+host reference.bin --> BOATLOG1 parser -----+       |
+                                                     +--> decoded CSV
+                                                     +--> comparison CSV
+                                                     +--> summary JSON
+                                                     +--> summary SVG
 ```
 
 ## Phases
 
-### Phase 1: application behavior
+### Phase 1 — application behavior
 
-Checks BOOT/READY/RUNNING/FAULT transitions, touch handling, and direct IMU fault behavior.
+BOOT / READY / RUNNING / FAULT, touch handling, IMU fault and recovery.
 
-### Phase 2: virtual I2C and UART
+### Phase 2 — virtual I2C and UART
 
-Adds I2C disconnect/timeout plus UART disconnect, delay, frame loss, and stale GNSS data.
+I2C disconnect/timeout and UART disconnect/delay/frame loss/stale GNSS.
 
-### Phase 3: transport, timing, and SD faults
+### Phase 3 — transport, timing, and SD faults
 
-Adds I2C NACK, UART byte/checksum/framing corruption, control-loop jitter, SD removal/write failure/write timeout, and diagnostic counters.
+I2C NACK, UART corruption/CRC/framing errors, loop jitter, SD write failure/timeout, counters and combined warnings.
 
-### Phase 4: VirtualBno08x
+### Phase 4 — VirtualBno08x
 
-Models startup initialization, report interval, report stall, reset, host reinitialization, I2C loss during reinit, report age/stale detection, last-good attitude retention, and recovery. Runtime BNO/I2C loss is critical and can force `FAULT`.
+Startup initialization, report cadence, report stall/stale state, reset, automatic reinitialization, I2C loss during recovery, and last-good attitude behavior.
 
-### Phase 5: VirtualIna226
+### Phase 5 — VirtualIna226
 
-Models INA226 conversion timing/averaging, completed-conversion updates, Current_LSB/Power_LSB quantization, calibration-dependent current/power, stale conversions, device-specific NACK, reset/reinit, range checks, and math-overflow diagnostics. INA-only faults are warning-only in the current demo policy.
+Conversion/averaging timing, calibration behavior, V/I/P quantization, stale data, device-specific NACK, reset/reinit, range checks, and math overflow.
 
-### Phase 6: VirtualVl53l5cx
+### Phase 6 — VirtualVl53l5cx
 
-Models an 8x8 / 64-zone VL53L5CX software contract: frame frequency, distance/status per zone, invalid zones, valid-zone count, minimum distance, stale frames, ranging stop/stall, device NACK, reset/reinit, and I2C recovery. VL53L5CX-only failures are warning-only; shared I2C loss remains critical through the control IMU path.
+8x8 / 64-zone distance/status frames, invalid zones, valid-zone count, minimum distance, stale ranging, NACK, reset/reinit, and shared-I2C behavior.
 
-### Phase 7: two virtual controllers over 921600-bps UART
+### Phase 7 — two virtual controllers
 
-Adds `VirtualDuplexUart` and `DualControllerSystem` as an abstract two-controller link model.
+Full-duplex 921600-bps 8N1 serialization timing, independent direction latency/connectivity, queues, drop/corrupt/framing injection, heartbeats, STOP, and link-loss failsafe.
 
-- full duplex, 921600 baud, 8N1 serialization time
-- independent direction latency/connectivity
-- queue accounting
-- drop / corrupt / framing injection
-- 10 Hz abstract GNSS/result traffic
-- 100 ms heartbeats
-- 500 ms heartbeat timeout
-- healthy-link STOP and link-loss failsafe tests
+### Phase 8 — production `boat_protocol`
 
-Phase 7 deliberately uses abstract packet types. It remains useful for transport stress testing and bandwidth tests.
-
-### Phase 8: production `boat_protocol` on the virtual UART
-
-Phase 8 replaces the abstract Phase-7 message format with the real boat UART protocol copied from the production two-XIAO firmware.
-
-Pinned production source:
+Copies the packed ABI and codec from the production boat firmware pinned at:
 
 - repository: `temesotejam/2026_8_6`
 - source commit: `bf8067c35ee56c884bfbd16e277b27db6e72ef98`
-- production header: `control/lib/boat_protocol/src/boat_protocol.h`
-- production codec: `control/lib/boat_protocol/src/boat_protocol.cpp`
 
-See `docs/PRODUCTION_PROTOCOL_SOURCE.md` for source blob hashes and exact provenance.
+The host suite executes the real production:
 
-Phase 8 compiles the copied production codec as `boat_protocol_host`. The simulator therefore uses the same:
-
-- packed protocol ABI,
-- `boat::Type` numeric IDs,
-- CRC32 implementation,
+- `boat::Type` IDs,
+- packed Header/payload ABI,
+- CRC32,
 - COBS encoder,
-- streaming `boat::Decoder`,
-- maximum payload and frame limits.
+- streaming `boat::Decoder`.
 
-The production wire frame is:
-
-```text
-packed Header (22 B)
-+ payload
-+ CRC32 (4 B)
--> COBS encode
--> append 0x00 delimiter
--> UART 921600 8N1
-```
-
-The Phase-8 compile-time tests pin important ABI details:
-
-- `HeartbeatPayload` = 12 bytes
-- `CommandPayload` = 8 bytes
-- `CommandAckPayload` = 28 bytes
-- `GnssNavV2Payload` = 68 bytes
-- `Heartbeat` type = 32
-- `Stop` type = 36
-- `GnssNavV2` type = 59
-
-The simulator uses actual production message types and payloads:
-
-- communication -> control: `GnssNavV2`, gated `Heartbeat`, and `Arm` / `Disarm` / `StartTest` / `Stop` / `Estop` / `ClearEstop` commands using `CommandPayload`
-- control -> communication: `ControlOutput`, `Heartbeat`, and `CommandAck`
-
-`GnssNavV2Payload` is checked twice, like production software would require: the outer wire frame must pass COBS + frame CRC32, and the payload's canonical CRC must also match.
-
-#### Production heartbeat chain
-
-The production communication firmware does not blindly send a host heartbeat forever. It sends a 100 ms heartbeat only while it has received a valid control-side frame within the previous 1000 ms. The control side uses a 500 ms host-heartbeat/failsafe timeout.
-
-Phase 8 models that chain:
+The production wire contract is:
 
 ```text
-CONTROL -> COMM direction fails
-        |
-        v
-COMM receives no fresh control frames for >1000 ms
-        |
-        v
-COMM stops host heartbeat
-        |
-        v
-CONTROL host heartbeat age exceeds 500 ms
-        |
-        v
-CONTROL performs a local failsafe stop
+Header + payload + CRC32 -> COBS -> 0x00 -> UART 921600 8N1
 ```
 
-This lets CI distinguish a single corrupt data frame from a true bidirectional supervision failure.
+Phase 8 covers real `GnssNavV2`, heartbeat, ARM/DISARM/START/STOP/E-STOP/CLEAR-E-STOP, `CommandPayload`, `CommandAckPayload`, and the bidirectional heartbeat chain.
 
-#### Production safety commands
+See `docs/PRODUCTION_PROTOCOL_SOURCE.md`.
 
-Phase 8 sends real `CommandPayload` objects wrapped in the corresponding production type. The control-side model sends a real `CommandAckPayload` response.
+### Phase 9 — production command retry and telemetry
 
-The safety scenario exercises:
+Phase 9 additionally compiles the production:
+
+- `production_control`,
+- `command_replay`,
+- `command_ingress`.
+
+It models:
+
+- `ControlModeCommand`, `ManualCommand`, `HeadingTarget`,
+- 64-entry replay window,
+- ACK loss -> 100 ms retry using the same request/sequence -> `Duplicate` ACK without reapplication,
+- `WaypointSet` / `WaypointAck` duplicate revision handling,
+- 1200 ms pending-command timeout,
+- separate 200 ms ManualCommand freshness stream with new IDs,
+- ARM / START / STOP safety flow,
+- 100 ms production telemetry burst in this order:
+  `ControlOutput -> ControlSnapshot -> InaStatus -> VescTelemetry -> ActuatorState -> SystemHealth`,
+- reverse-link telemetry loss -> COMM heartbeat stops -> CONTROL heartbeat failsafe.
+
+See `docs/PHASE9_PRODUCTION_COMMAND_TELEMETRY.md`.
+
+### Phase 10 — BOATLOG1 hardware-log comparison
+
+Phase 10 parses the compact SD log format currently defined in the open production draft PR #2 (`temesotejam/2026_8_6`, inspected at head `0820d1d1c2107609c839bf6cc5d8c42f9d56e982`). Because that PR is not merged, this is explicitly treated as **draft BOATLOG1 version 1**.
+
+The format has:
+
+- 20-byte little-endian header,
+- 40-byte fixed records,
+- current draft cadence: 2000 ms,
+- logged position, speed, roll/pitch, ToF, left/right/rear command, target/applied duty, waypoint distance, ERPM, safety, mode, yaw criteria, and flags.
+
+`boatlog_replay_cli` compares an observed hardware log to a host-reference log using nearest timestamps and reports:
+
+- time offset,
+- position error in metres,
+- speed error,
+- roll/pitch error,
+- ToF error,
+- left/right/rear error,
+- target/applied duty error,
+- waypoint-distance error,
+- ERPM error,
+- exact safety/mode/yaw/flags mismatches.
+
+Output:
 
 ```text
-DISARMED -> ARM -> START/RUNNING -> STOP/DISARMED
-                                  -> E-STOP -> CLEAR_ESTOP/DISARMED
+observed_decoded.csv
+reference_decoded.csv
+comparison.csv
+summary.json
+summary.svg
 ```
 
-STOP and heartbeat-failsafe are intentionally separate test paths.
+CI verifies three cases: exact match PASS, 80 ms timestamp shift PASS, and deliberately perturbed data FAIL. See `docs/PHASE10_BOATLOG_REPLAY.md`.
 
-## Run on a PC
+## Build and run
 
 ```bash
 cmake -S . -B build
-cmake --build build
+cmake --build build --parallel
 ctest --test-dir build --output-on-failure
-
-./build/cores3_sim scenarios/demo.csv artifacts/demo
-./build/cores3_sim scenarios/bus_faults.csv artifacts/bus_faults
-./build/cores3_sim scenarios/transport_faults.csv artifacts/transport_faults
-./build/cores3_sim scenarios/bno08x_faults.csv artifacts/bno08x_faults
-./build/cores3_sim scenarios/ina226_faults.csv artifacts/ina226_faults
-./build/cores3_sim scenarios/vl53l5cx_faults.csv artifacts/vl53l5cx_faults
-
-./build/dual_controller_sim scenarios/dual_uart_faults.csv artifacts/dual_uart_faults
-./build/dual_controller_sim scenarios/dual_uart_stop.csv artifacts/dual_uart_stop
-
-./build/production_protocol_sim scenarios/production_protocol_faults.csv artifacts/production_protocol_faults
-./build/production_protocol_sim scenarios/production_protocol_safety.csv artifacts/production_protocol_safety
 ```
 
-Every simulator emits SVG state frames plus `trace.csv`.
+Representative simulator commands:
+
+```bash
+./build/cores3_sim scenarios/demo.csv artifacts/demo
+./build/dual_controller_sim scenarios/dual_uart_faults.csv artifacts/dual_uart_faults
+./build/production_protocol_sim scenarios/production_protocol_faults.csv artifacts/production_protocol_faults
+./build/production_command_telemetry_sim scenarios/production_command_retry.csv artifacts/production_command_retry
+```
+
+Phase-10 fixture/replay:
+
+```bash
+./build/boatlog_fixture artifacts/phase10_fixture
+
+./build/boatlog_replay_cli \
+  artifacts/phase10_fixture/observed_exact.bin \
+  artifacts/phase10_fixture/reference.bin \
+  artifacts/phase10_exact
+```
+
+Future real hardware log:
+
+```bash
+./build/boatlog_replay_cli \
+  BOAT_XXXXXXXX_01.BIN \
+  host_reference.bin \
+  artifacts/real_run_01
+```
 
 ## Scenario formats
 
-The single-controller simulator preserves all older formats:
+Single-controller formats remain backward compatible:
 
 - Phase 1: 7 columns
 - Phase 2: 12 columns
@@ -199,47 +213,37 @@ The single-controller simulator preserves all older formats:
 - Phase 5: 39 columns
 - Phase 6: 49 columns
 
-The abstract Phase-7 dual-controller simulator uses:
+Phase 7, Phase 8, and Phase 9 use separate event CSV formats documented by their scenario headers.
 
-```text
-t_ms,c2c_connected,c2m_connected,c2c_latency_ms,c2m_latency_ms,c2c_fault,c2m_fault,gnss_valid,send_stop
-```
-
-The production Phase-8 simulator uses:
-
-```text
-t_ms,c2c_connected,c2c_latency_ms,c2m_connected,c2m_latency_ms,c2c_fault,c2m_fault,gnss_valid,arm,start,stop,estop,clear_estop,disarm
-```
-
-Fault codes are `0=none`, `1=drop`, `2=corrupt`, and `3=framing`.
-
-## Build the real CoreS3 firmware
+## Real CoreS3 build
 
 ```bash
 pio run -e m5stack-cores3
 ```
 
-The production protocol classes are host-simulator components in this repository. The existing CoreS3 Arduino firmware still builds independently with its physical hardware path.
+GitHub Actions independently runs the host simulation/test job and the M5Stack CoreS3 PlatformIO build.
 
-## GitHub Actions
+## What this can and cannot prove
 
-Every push and pull request runs two independent jobs.
+Strong coverage now includes:
 
-1. **Host simulation**
-   - builds app, device, abstract UART, and production-protocol models,
-   - runs all application/integration tests plus Phase 3-8 tests,
-   - executes six device scenarios, two Phase-7 UART scenarios, and two Phase-8 production-protocol scenarios,
-   - uploads SVG frames and trace CSV files.
-2. **CoreS3 firmware build**
-   - installs PlatformIO,
-   - compiles the real M5Stack CoreS3 Arduino firmware.
+- application state transitions,
+- software-visible I2C/UART/device faults,
+- deterministic timing policies,
+- production packet ABI/CRC/COBS decoding,
+- command retry and duplicate suppression,
+- production controller calculations compiled natively,
+- telemetry scheduling contracts,
+- hardware-log observable agreement.
 
-## Important limitation
+It still does not reproduce:
 
-This is not an electrical, optical, RF, or instruction-level emulator. It does not reproduce UART waveform edges, oscillator mismatch, metastability, ESP32-S3 DMA/interrupt races, I2C analog effects, VL53L5CX optical physics, RF behavior, or brownouts.
+- ESP32-S3 CPU/register execution,
+- FreeRTOS task scheduling and ISR races,
+- UART/I2C electrical waveforms,
+- pull-ups/capacitance/metastability,
+- physical sensor noise/optics,
+- RF behavior,
+- power/brownout behavior.
 
-Phase 8 is **protocol-core accurate**, not yet a native build of the complete production communication/control applications. The control-side model currently emits representative production `ControlOutput` + `Heartbeat` traffic rather than the complete real telemetry burst (`ControlSnapshot`, `InaStatus`, `VescTelemetry`, `ActuatorState`, `SystemHealth`, etc.).
-
-## Next useful extension
-
-The next step is to import the real command-ingress/ACK/retry and production telemetry schedule, then replay real hardware logs against the same decoder and compare host simulation with captured hardware traces.
+The current BOATLOG1 record also does not contain every raw input required to reconstruct the complete production run from first principles. Phase 10 therefore quantifies agreement for **logged observables**; richer deterministic input replay can be added when the hardware log captures command/configuration and complete controller-relevant sensor state.
