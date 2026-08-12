@@ -94,7 +94,6 @@ SensorSample VirtualHardware::sample(std::uint32_t now_ms) {
                  bno.report_fresh;
     out.pitch_deg = bno.pitch_deg;
   } else {
-    // Phase 1-3 compatibility path.
     out.imu_ok = out.i2c_ok && input_.imu_online;
     if (out.imu_ok) last_pitch_deg_ = input_.pitch_deg;
     out.pitch_deg = last_pitch_deg_;
@@ -138,6 +137,32 @@ SensorSample VirtualHardware::sample(std::uint32_t now_ms) {
   out.ina_current_a = ina.current_a;
   out.ina_power_w = ina.power_w;
   out.ina_shunt_voltage_v = ina.shunt_voltage_v;
+
+  Vl53l5cxInput tof_input;
+  tof_input.enabled = input_.tof_model_enabled;
+  tof_input.powered = input_.tof_powered;
+  tof_input.device_ack = input_.tof_device_ack;
+  tof_input.force_reset = input_.tof_force_reset;
+  tof_input.ranging_enabled = input_.tof_ranging_enabled;
+  tof_input.stall_frames = input_.tof_stall_frames;
+  tof_input.ranging_frequency_hz = input_.tof_ranging_frequency_hz;
+  tof_input.reinit_delay_ms = input_.tof_reinit_delay_ms;
+  tof_input.auto_reinit = input_.tof_auto_reinit;
+  tof_input.default_distance_mm = input_.tof_default_distance_mm;
+  tof_input.invalid_zone = input_.tof_invalid_zone;
+  tof_input.invalid_status = input_.tof_invalid_status;
+  tof_input.invalid_distance_mm = input_.tof_invalid_distance_mm;
+
+  const auto tof = tof_.update(now_ms, tof_input, out.i2c_ok);
+  out.tof_model_active = tof.active;
+  out.tof_device_ok = !tof.active ||
+                      (input_.tof_powered && input_.tof_device_ack && out.i2c_ok);
+  out.tof_initialized = tof.initialized;
+  out.tof_reinitializing = tof.reinitializing;
+  out.tof_frame_fresh = tof.frame_fresh;
+  out.tof_frame_age_ms = tof.frame_age_ms;
+  out.tof_valid_zones = tof.valid_zones;
+  out.tof_min_distance_mm = tof.min_distance_mm;
 
   deliverPending(now_ms);
   out.uart_ok = input_.uart_connected;
