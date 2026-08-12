@@ -1,14 +1,36 @@
 # Test scope
 
-This repository deliberately separates three different questions instead of calling every green check a full hardware simulation.
+This repository deliberately separates different confidence levels instead of calling every green check a full hardware simulation.
 
-## 1. Native shared-logic test
+## 1. CoreS3 hardware-topology contract
+
+A passing topology check proves that the machine-readable board map matches the captured CoreS3 wiring contract used by the simulator.
+
+It validates:
+
+- Port A on the CoreS3 main unit: GPIO2 SDA / GPIO1 SCL,
+- Port B through Base DIN/M5-Bus: GPIO9 PB_OUT / GPIO8 PB_IN,
+- Port C through Base DIN/M5-Bus: GPIO17 PC_TX / GPIO18 PC_RX,
+- all 30 M5-Bus positions,
+- LCD + microSD shared SPI wiring,
+- internal I2C GPIO12/GPIO11 and onboard device addresses,
+- BMM150 behind the BMI270 auxiliary bus,
+- touch reset/interrupt routing through AW9523B,
+- camera control/data/timing pins,
+- audio I2S wiring,
+- RTC/IMU identities and addresses.
+
+The source is `sim/cores3/board_topology.json`; `tools/validate_cores3_topology.py` checks the invariants in CI.
+
+This is a **connection model**, not yet behavioral emulation of each chip.
+
+## 2. Native shared-logic test
 
 A passing native test gives strong evidence that deterministic, hardware-independent C++ logic behaves as specified. It is ideal for state machines, parsers, timeout logic, navigation math, filtering, validation rules, and large scenario sets.
 
 It does **not** exercise the ESP32-S3 CPU, FreeRTOS, flash boot, Arduino, M5Unified, or hardware registers.
 
-## 2. ESP32-S3 QEMU runtime test
+## 3. ESP32-S3 QEMU runtime test
 
 A passing QEMU test currently proves that:
 
@@ -24,43 +46,52 @@ A passing QEMU test currently proves that:
 
 This is substantially more than a compile-only test.
 
-It does **not** currently prove that M5Unified's CoreS3-specific LCD/touch/audio/camera code works in QEMU. The QEMU program is an ESP-IDF harness that reuses the same hardware-independent logic as the CoreS3 firmware.
+It does **not** yet mean M5Unified's CoreS3-specific LCD/touch/audio/camera path is behaviorally modeled. The board topology is now known, so the next work is attaching virtual peripheral models to those real connection points.
 
-## 3. Real CoreS3 PlatformIO build
+## 4. Real CoreS3 PlatformIO build
 
 A passing CoreS3 build proves that the real Arduino/M5Unified application remains compatible with the shared code and produces firmware for the `m5stack-cores3` target.
 
-Without a physical board or a higher-level CoreS3 simulator, build success alone does not prove the CoreS3 external hardware path at runtime.
+Without a physical board or completed CoreS3 peripheral models, build success alone does not prove the external hardware path at runtime.
 
 ## Optional Wokwi test
 
-Wokwi remains an optional fourth check. When `WOKWI_CLI_TOKEN` is configured, it can run the CoreS3-oriented firmware in Wokwi's CoreS3 model. The self-hosted native and QEMU jobs do not require this token.
+Wokwi remains an optional comparison check. When `WOKWI_CLI_TOKEN` is configured, it can run the CoreS3-oriented firmware in Wokwi's CoreS3 model. The self-hosted native, topology, and QEMU jobs do not require this token.
 
-## What no current virtual test proves
+## Peripheral-emulation status
 
-The current suite does not prove:
+The topology is already captured; the following behavioral models are still pending:
 
-- power sequencing, brownouts, or regulator behavior,
+- ILI9342C command parser and 320x240 framebuffer,
+- AW9523B register behavior needed by M5Unified startup/reset paths,
+- AXP2101 subset needed by LCD power/backlight and board startup,
+- FT6336U touch coordinate injection,
+- microSD SPI storage transactions,
+- attachable Port A/B/C endpoints,
+- BMI270/BMM150 data generation,
+- camera pixel stream,
+- audio codec/amplifier behavior.
+
+The intended LCD end-to-end path is:
+
+```text
+real CoreS3/M5Unified drawing calls
+        -> ESP32-S3 SPI/GPIO traffic
+        -> virtual ILI9342C
+        -> 320x240 framebuffer
+        -> cores3-screen.png artifact
+```
+
+## What no virtual test will fully prove
+
+Even after the digital device models are complete, software simulation will not establish:
+
+- real power sequencing, voltage droop or brownout margins,
 - electrical I2C/SPI/UART signal integrity,
-- pull-up resistor correctness,
-- EMI or motor noise behavior,
-- physical timing limits caused by wiring/loads,
-- real display/touch/camera/speaker behavior,
+- pull-up resistor sizing and cable capacitance,
+- EMI/noise coupling,
+- actual CoreS3 thermal limits,
 - GNSS RF reception or antenna performance,
-- real sensor bias, vibration, temperature drift, or magnetic interference.
+- physical sensor bias, vibration, temperature drift or magnetic interference.
 
-Those require physical tests or HIL.
-
-## Recommended extension path
-
-The useful goal is not to recreate every CoreS3 transistor. It is to model the interfaces that can expose firmware bugs.
-
-1. Move deterministic application behavior into small shared modules.
-2. Test those modules quickly on the host.
-3. Execute representative cases inside ESP32-S3 QEMU to include boot/FreeRTOS/SoC behavior.
-4. Add a virtual UART GNSS endpoint and exercise real NMEA/UBX parsing.
-5. Inject GNSS dropout, corruption, delay, stale data, jumps, and recovery.
-6. Add virtual sensor inputs at the narrowest useful interface (first measurement-level, later register/I2C-level if needed).
-7. Add a physical CoreS3 HIL runner for electrical/peripheral behavior that software emulation cannot establish.
-
-This gives a practical ladder from very fast software tests to real hardware without making every change wait for a field test.
+Those remain real-hardware/HIL tests.
