@@ -5,6 +5,11 @@ namespace {
 constexpr std::uint32_t kBootTimeMs = 500;
 constexpr std::uint32_t kFaultRecoveryMs = 500;
 constexpr std::uint32_t kRunTickMs = 100;
+
+void addWarning(std::string& dst, const std::string& text) {
+  if (!dst.empty()) dst += " | ";
+  dst += text;
+}
 }
 
 const char* App::stateName(RunState state) {
@@ -71,12 +76,20 @@ UiFrame App::update(std::uint32_t now_ms,
   frame.uart_ok = sensors.uart_ok;
   frame.gnss_ok = sensors.gnss_ok;
   frame.gnss_age_ms = sensors.gnss_age_ms;
+  frame.i2c_nack = sensors.i2c_nack;
+  frame.uart_frame_ok = sensors.uart_frame_ok;
+  frame.timing_ok = sensors.timing_ok;
+  frame.loop_jitter_ms = sensors.loop_jitter_ms;
+  frame.sd_ok = sensors.sd_ok;
 
   if (!sensors.uart_ok) {
-    frame.warning = "UART link down";
-  } else if (!sensors.gnss_ok) {
-    frame.warning = "GNSS data stale";
+    addWarning(frame.warning, "UART link down");
+  } else if (!sensors.uart_frame_ok) {
+    addWarning(frame.warning, "UART frame error");
   }
+  if (!sensors.gnss_ok) addWarning(frame.warning, "GNSS data stale");
+  if (!sensors.timing_ok) addWarning(frame.warning, "Control loop jitter");
+  if (!sensors.sd_ok) addWarning(frame.warning, "SD write failed");
 
   switch (state_) {
     case RunState::Boot:
@@ -97,7 +110,9 @@ UiFrame App::update(std::uint32_t now_ms,
     case RunState::Fault:
       frame.button_enabled = false;
       frame.button_label = "LOCKED";
-      if (!sensors.i2c_ok) {
+      if (sensors.i2c_nack) {
+        frame.message = "I2C device NACK";
+      } else if (!sensors.i2c_ok) {
         frame.message = "I2C timeout / disconnect";
       } else if (!sensors.imu_ok) {
         frame.message = "IMU unavailable";
