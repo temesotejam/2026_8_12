@@ -1,6 +1,7 @@
 #include "ProductionUartLink.h"
 
 #include <algorithm>
+#include <utility>
 
 namespace cores3sim {
 
