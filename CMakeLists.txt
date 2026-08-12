@@ -60,6 +60,13 @@ target_link_libraries(production_command_link PUBLIC
   production_control_host
 )
 
+# Phase 10 parses the draft production BOATLOG1 SD format and compares logged
+# observables against a host-simulation reference at nearest timestamps.
+add_library(boatlog_replay
+  lib/replay/BoatLogReplay.cpp
+)
+target_include_directories(boatlog_replay PUBLIC lib/replay)
+
 add_executable(cores3_sim simulator/main.cpp)
 target_link_libraries(cores3_sim PRIVATE app_logic virtual_hw)
 
@@ -75,6 +82,19 @@ add_executable(production_command_telemetry_sim
 target_link_libraries(production_command_telemetry_sim PRIVATE
   production_command_link
 )
+
+add_executable(boatlog_fixture
+  simulator/boatlog_fixture_main.cpp
+)
+target_link_libraries(boatlog_fixture PRIVATE
+  boatlog_replay
+  production_control_host
+)
+
+add_executable(boatlog_replay_cli
+  simulator/boatlog_replay_main.cpp
+)
+target_link_libraries(boatlog_replay_cli PRIVATE boatlog_replay)
 
 add_executable(app_tests tests/test_app.cpp)
 target_link_libraries(app_tests PRIVATE app_logic)
@@ -106,6 +126,9 @@ target_link_libraries(phase8_tests PRIVATE production_link)
 add_executable(phase9_tests tests/test_phase9.cpp)
 target_link_libraries(phase9_tests PRIVATE production_command_link)
 
+add_executable(phase10_tests tests/test_phase10.cpp)
+target_link_libraries(phase10_tests PRIVATE boatlog_replay)
+
 enable_testing()
 add_test(NAME app_logic_tests COMMAND app_tests)
 add_test(NAME virtual_hardware_tests COMMAND virtual_hw_tests)
@@ -117,3 +140,4 @@ add_test(NAME phase6_vl53l5cx_tests COMMAND phase6_tests)
 add_test(NAME phase7_dual_uart_tests COMMAND phase7_tests)
 add_test(NAME phase8_production_protocol_tests COMMAND phase8_tests)
 add_test(NAME phase9_production_command_telemetry_tests COMMAND phase9_tests)
+add_test(NAME phase10_boatlog_replay_tests COMMAND phase10_tests)
