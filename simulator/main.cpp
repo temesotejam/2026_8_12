@@ -54,8 +54,27 @@ static std::vector<ScenarioRow> loadScenario(const fs::path& path) {
       r.hw.uart_latency_ms = static_cast<std::uint32_t>(std::stoul(c[7]));
       r.hw.gnss_source_valid = std::stoi(c[8]) != 0;
       r.touch = {std::stoi(c[9]) != 0, std::stoi(c[10]), std::stoi(c[11])};
+    } else if (c.size() == 20) {
+      r.t_ms = static_cast<std::uint32_t>(std::stoul(c[0]));
+      r.hw.pitch_deg = std::stof(c[1]);
+      r.hw.battery_v = std::stof(c[2]);
+      r.hw.imu_online = std::stoi(c[3]) != 0;
+      r.hw.i2c_connected = std::stoi(c[4]) != 0;
+      r.hw.i2c_latency_ms = static_cast<std::uint32_t>(std::stoul(c[5]));
+      r.hw.i2c_nack = std::stoi(c[6]) != 0;
+      r.hw.uart_connected = std::stoi(c[7]) != 0;
+      r.hw.uart_latency_ms = static_cast<std::uint32_t>(std::stoul(c[8]));
+      r.hw.gnss_source_valid = std::stoi(c[9]) != 0;
+      r.hw.uart_corrupt_byte = std::stoi(c[10]) != 0;
+      r.hw.uart_crc_error = std::stoi(c[11]) != 0;
+      r.hw.uart_framing_error = std::stoi(c[12]) != 0;
+      r.hw.loop_jitter_ms = static_cast<std::int32_t>(std::stol(c[13]));
+      r.hw.sd_connected = std::stoi(c[14]) != 0;
+      r.hw.sd_fail_write = std::stoi(c[15]) != 0;
+      r.hw.sd_latency_ms = static_cast<std::uint32_t>(std::stoul(c[16]));
+      r.touch = {std::stoi(c[17]) != 0, std::stoi(c[18]), std::stoi(c[19])};
     } else {
-      throw std::runtime_error("scenario row needs 7 or 12 columns: " + line);
+      throw std::runtime_error("scenario row needs 7, 12, or 20 columns: " + line);
     }
     rows.push_back(r);
   }
@@ -75,35 +94,41 @@ static std::string xml(std::string s) {
 
 static const char* health(bool ok) { return ok ? "OK" : "BAD"; }
 
-static void writeSvg(const fs::path& path, const UiFrame& frame,
-                     const SensorSample& sensor, std::uint32_t t_ms) {
-  const char* state_color = frame.state == RunState::Fault ? "#c62828" :
-                            frame.state == RunState::Running ? "#1565c0" :
-                            frame.state == RunState::Ready ? "#00796b" : "#666666";
+static void writeSvg(const fs::path& path, const UiFrame& f,
+                     const SensorSample& s, std::uint32_t t_ms) {
+  const char* state_color = f.state == RunState::Fault ? "#c62828" :
+                            f.state == RunState::Running ? "#1565c0" :
+                            f.state == RunState::Ready ? "#00796b" : "#666666";
   std::ofstream o(path);
   o << "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"320\" height=\"240\">";
   o << "<rect width=\"320\" height=\"240\" fill=\"#101418\"/>";
-  o << "<rect width=\"320\" height=\"38\" fill=\"" << state_color << "\"/>";
+  o << "<rect width=\"320\" height=\"36\" fill=\"" << state_color << "\"/>";
   o << "<g fill=\"white\" font-family=\"monospace\">";
-  o << "<text x=\"10\" y=\"25\" font-size=\"18\">CoreS3 BUS SIM</text>";
-  o << "<text x=\"305\" y=\"25\" text-anchor=\"end\" font-size=\"16\">"
-    << App::stateName(frame.state) << "</text>";
-  o << "<text x=\"12\" y=\"62\" font-size=\"14\">" << xml(frame.message) << "</text>";
-  if (!frame.warning.empty())
-    o << "<text x=\"12\" y=\"82\" fill=\"#ffca28\" font-size=\"13\">WARN: "
-      << xml(frame.warning) << "</text>";
-  o << "<text x=\"12\" y=\"105\" font-size=\"13\">I2C:" << health(frame.i2c_ok && frame.imu_ok)
-    << "  UART:" << health(frame.uart_ok) << "  GNSS:" << health(frame.gnss_ok) << "</text>";
-  o << "<text x=\"12\" y=\"130\" font-size=\"13\">Pitch: " << std::fixed << std::setprecision(1)
-    << frame.pitch_deg << " deg  Bat: " << std::setprecision(2) << frame.battery_v << " V</text>";
-  o << "<text x=\"12\" y=\"153\" font-size=\"12\">ticks:" << frame.run_ticks << " t:"
-    << t_ms << "ms GNSS-age:";
-  if (sensor.gnss_age_ms == std::numeric_limits<std::uint32_t>::max()) o << "never";
-  else o << sensor.gnss_age_ms << "ms";
+  o << "<text x=\"9\" y=\"24\" font-size=\"17\">CoreS3 FAULT SIM</text>";
+  o << "<text x=\"309\" y=\"24\" text-anchor=\"end\" font-size=\"15\">"
+    << App::stateName(f.state) << "</text>";
+  o << "<text x=\"10\" y=\"57\" font-size=\"13\">" << xml(f.message) << "</text>";
+  if (!f.warning.empty()) {
+    o << "<text x=\"10\" y=\"76\" fill=\"#ffca28\" font-size=\"11\">WARN: "
+      << xml(f.warning) << "</text>";
+  }
+  o << "<text x=\"10\" y=\"99\" font-size=\"12\">I2C:"
+    << health(f.i2c_ok && f.imu_ok) << " UART:" << health(f.uart_ok)
+    << " GNSS:" << health(f.gnss_ok) << "</text>";
+  o << "<text x=\"10\" y=\"119\" font-size=\"12\">FRAME:"
+    << health(f.uart_frame_ok) << " SD:" << health(f.sd_ok)
+    << " TIME:" << health(f.timing_ok) << " J:" << f.loop_jitter_ms << "ms</text>";
+  o << "<text x=\"10\" y=\"140\" font-size=\"12\">Pitch:"
+    << std::fixed << std::setprecision(1) << f.pitch_deg << "deg Bat:"
+    << std::setprecision(2) << f.battery_v << "V</text>";
+  o << "<text x=\"10\" y=\"159\" font-size=\"11\">ticks:" << f.run_ticks
+    << " t:" << t_ms << " GNSS-age:";
+  if (s.gnss_age_ms == std::numeric_limits<std::uint32_t>::max()) o << "never";
+  else o << s.gnss_age_ms << "ms";
   o << "</text>";
-  o << "<rect x=\"60\" y=\"175\" width=\"200\" height=\"55\" rx=\"8\" fill=\"#37474f\"/>";
-  o << "<text x=\"160\" y=\"210\" text-anchor=\"middle\" font-size=\"20\">"
-    << xml(frame.button_label) << "</text></g></svg>";
+  o << "<rect x=\"60\" y=\"177\" width=\"200\" height=\"52\" rx=\"8\" fill=\"#37474f\"/>";
+  o << "<text x=\"160\" y=\"209\" text-anchor=\"middle\" font-size=\"19\">"
+    << xml(f.button_label) << "</text></g></svg>";
 }
 
 int main(int argc, char** argv) {
@@ -116,7 +141,7 @@ int main(int argc, char** argv) {
   App app;
   VirtualHardware hw;
   std::ofstream trace(outdir / "trace.csv");
-  trace << "t_ms,state,pitch_deg,i2c_ok,imu_ok,uart_ok,gnss_ok,gnss_age_ms,run_ticks,warning,i2c_timeouts,uart_dropped\n";
+  trace << "t_ms,state,pitch_deg,i2c_ok,i2c_nack,imu_ok,uart_ok,uart_frame_ok,gnss_ok,gnss_age_ms,timing_ok,jitter_ms,sd_ok,run_ticks,warning,i2c_timeouts,i2c_nacks,uart_dropped,uart_corrupt,uart_crc_errors,uart_framing_errors,jitter_events,max_jitter_ms,sd_failures,sd_timeouts\n";
 
   for (std::size_t i = 0; i < rows.size(); ++i) {
     const auto& r = rows[i];
@@ -126,14 +151,21 @@ int main(int argc, char** argv) {
     std::ostringstream filename;
     filename << "frame_" << std::setw(3) << std::setfill('0') << i << '_' << r.t_ms << "ms.svg";
     writeSvg(outdir / filename.str(), frame, sensor, r.t_ms);
-    const auto& stats = hw.stats();
+    const auto& st = hw.stats();
     trace << r.t_ms << ',' << App::stateName(frame.state) << ',' << sensor.pitch_deg << ','
-          << sensor.i2c_ok << ',' << sensor.imu_ok << ',' << sensor.uart_ok << ',' << sensor.gnss_ok << ','
-          << sensor.gnss_age_ms << ',' << frame.run_ticks << ",\"" << frame.warning << "\"," << stats.i2c_timeouts
-          << ',' << stats.uart_frames_dropped << '\n';
+          << sensor.i2c_ok << ',' << sensor.i2c_nack << ',' << sensor.imu_ok << ','
+          << sensor.uart_ok << ',' << sensor.uart_frame_ok << ',' << sensor.gnss_ok << ','
+          << sensor.gnss_age_ms << ',' << sensor.timing_ok << ',' << sensor.loop_jitter_ms << ','
+          << sensor.sd_ok << ',' << frame.run_ticks << ",\"" << frame.warning << "\"," << st.i2c_timeouts
+          << ',' << st.i2c_nacks << ',' << st.uart_frames_dropped << ',' << st.uart_corrupt_bytes
+          << ',' << st.uart_crc_errors << ',' << st.uart_framing_errors << ',' << st.timing_jitter_events
+          << ',' << st.max_abs_jitter_ms << ',' << st.sd_write_failures << ',' << st.sd_write_timeouts << '\n';
     std::cout << r.t_ms << "ms " << App::stateName(frame.state)
-              << " I2C=" << health(sensor.i2c_ok) << " UART=" << health(sensor.uart_ok)
-              << " GNSS=" << health(sensor.gnss_ok) << '\n';
+              << " I2C=" << health(sensor.i2c_ok)
+              << " UART=" << health(sensor.uart_ok)
+              << " FRAME=" << health(sensor.uart_frame_ok)
+              << " SD=" << health(sensor.sd_ok)
+              << " TIME=" << health(sensor.timing_ok) << '\n';
   }
   return 0;
 }
