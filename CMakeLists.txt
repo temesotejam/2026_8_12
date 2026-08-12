@@ -52,6 +52,7 @@ target_link_libraries(production_control_host PUBLIC boat_protocol_host)
 
 add_library(production_command_link
   lib/virtual_link/ProductionCommandTelemetrySystem.cpp
+  lib/virtual_link/ProductionCommandTelemetryManualRefresh.cpp
 )
 target_include_directories(production_command_link PUBLIC lib/virtual_link)
 target_link_libraries(production_command_link PUBLIC
