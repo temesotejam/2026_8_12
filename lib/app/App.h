@@ -13,9 +13,15 @@ enum class RunState {
 };
 
 struct SensorSample {
+  // Keep the first three fields compatible with the phase-1 aggregate initializer.
   bool imu_ok{true};
   float pitch_deg{0.0f};
   float battery_v{4.0f};
+
+  bool i2c_ok{true};
+  bool uart_ok{true};
+  bool gnss_ok{true};
+  std::uint32_t gnss_age_ms{0};
 };
 
 struct TouchSample {
@@ -30,8 +36,14 @@ struct UiFrame {
   float battery_v{0.0f};
   std::uint32_t run_ticks{0};
   bool button_enabled{false};
+  bool i2c_ok{true};
+  bool imu_ok{true};
+  bool uart_ok{true};
+  bool gnss_ok{true};
+  std::uint32_t gnss_age_ms{0};
   std::string button_label{"WAIT"};
   std::string message{"Booting"};
+  std::string warning{};
 };
 
 class App {
