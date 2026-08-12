@@ -23,11 +23,28 @@ add_library(virtual_link
 )
 target_include_directories(virtual_link PUBLIC lib/virtual_link)
 
+# Phase 8 deliberately compiles the same boat_protocol codec/ABI that is used
+# by the production communication and control firmware.
+add_library(boat_protocol_host
+  lib/boat_protocol/boat_protocol.cpp
+)
+target_include_directories(boat_protocol_host PUBLIC lib/boat_protocol)
+
+add_library(production_link
+  lib/virtual_link/ProductionUartLink.cpp
+  lib/virtual_link/ProductionProtocolSystem.cpp
+)
+target_include_directories(production_link PUBLIC lib/virtual_link)
+target_link_libraries(production_link PUBLIC virtual_link boat_protocol_host)
+
 add_executable(cores3_sim simulator/main.cpp)
 target_link_libraries(cores3_sim PRIVATE app_logic virtual_hw)
 
 add_executable(dual_controller_sim simulator/dual_controller_main.cpp)
 target_link_libraries(dual_controller_sim PRIVATE virtual_link)
+
+add_executable(production_protocol_sim simulator/production_protocol_main.cpp)
+target_link_libraries(production_protocol_sim PRIVATE production_link)
 
 add_executable(app_tests tests/test_app.cpp)
 target_link_libraries(app_tests PRIVATE app_logic)
@@ -53,6 +70,9 @@ target_link_libraries(phase6_tests PRIVATE app_logic virtual_hw)
 add_executable(phase7_tests tests/test_phase7.cpp)
 target_link_libraries(phase7_tests PRIVATE virtual_link)
 
+add_executable(phase8_tests tests/test_phase8.cpp)
+target_link_libraries(phase8_tests PRIVATE production_link)
+
 enable_testing()
 add_test(NAME app_logic_tests COMMAND app_tests)
 add_test(NAME virtual_hardware_tests COMMAND virtual_hw_tests)
@@ -62,3 +82,4 @@ add_test(NAME phase4_bno08x_tests COMMAND phase4_tests)
 add_test(NAME phase5_ina226_tests COMMAND phase5_tests)
 add_test(NAME phase6_vl53l5cx_tests COMMAND phase6_tests)
 add_test(NAME phase7_dual_uart_tests COMMAND phase7_tests)
+add_test(NAME phase8_production_protocol_tests COMMAND phase8_tests)
