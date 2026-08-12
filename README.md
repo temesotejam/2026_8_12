@@ -6,20 +6,28 @@ It now has a **Wokwi-free path** based on the official Espressif ESP32-S3 QEMU, 
 
 ## What is running now
 
-GitHub Actions performs three independent checks on every push/PR:
+GitHub Actions performs four independent checks on every push/PR:
 
-1. **Native shared-logic test**
+1. **CoreS3 hardware-topology contract**
+   - validates the machine-readable CoreS3 wiring model in `sim/cores3/board_topology.json`,
+   - checks Port A/B/C -> GPIO -> M5-Bus relationships,
+   - checks all 30 M5-Bus pins,
+   - checks LCD/microSD shared SPI wiring,
+   - checks internal I2C addresses and camera/audio wiring,
+   - requires `CORES3_TOPOLOGY_CHECK:PASS`.
+
+2. **Native shared-logic test**
    - builds a pure C++ test with the host `g++`,
    - executes the same `HeartbeatGate` logic used by the embedded programs,
    - requires `NATIVE_CHECK:PASS`.
 
-2. **Real CoreS3 PlatformIO build**
+3. **Real CoreS3 PlatformIO build**
    - targets `m5stack-cores3`,
    - uses Arduino + M5Unified,
    - initializes the CoreS3 display in `src/main.cpp`,
    - proves the production-side firmware still compiles after shared logic changes.
 
-3. **ESP32-S3 QEMU runtime test — no Wokwi token required**
+4. **ESP32-S3 QEMU runtime test — no Wokwi token required**
    - builds an ESP-IDF image for ESP32-S3 with PlatformIO,
    - creates a complete 8 MB SPI flash image containing bootloader, partition table, and application,
    - downloads a pinned official Espressif QEMU binary and verifies its SHA-256,
@@ -37,7 +45,28 @@ QEMU_CHECK:PASS
 
 The QEMU serial log is uploaded as a GitHub Actions artifact.
 
-## The shared part
+## CoreS3 wiring is now a first-class simulation input
+
+The virtual-board work is no longer based on loose GPIO notes. `sim/cores3/board_topology.json` records the board connection graph used by future peripheral models.
+
+Key external mappings are:
+
+```text
+Port A (CoreS3 main unit)
+  GND / 5V / GPIO2 SDA / GPIO1 SCL
+
+Port B (Base DIN via M5-Bus)
+  GND / 5V / GPIO9 PB_OUT / GPIO8 PB_IN
+
+Port C (Base DIN via M5-Bus)
+  GND / 5V / GPIO17 PC_TX / GPIO18 PC_RX
+```
+
+The topology also records the full M5-Bus 30-pin map, internal I2C bus, LCD + microSD shared SPI bus, touch, camera, audio, IMU, RTC, and the fact that BMM150 sits behind the BMI270 auxiliary bus rather than directly on the ESP32-S3 I2C bus.
+
+See [`docs/CORES3_HARDWARE_MAP.md`](docs/CORES3_HARDWARE_MAP.md) for the human-readable map.
+
+## The shared logic
 
 `include/smoke_logic.hpp` is deliberately hardware-independent. Both the real CoreS3 program and the QEMU program use the same state logic:
 
@@ -54,19 +83,26 @@ This small example is only a stand-in for the architecture we actually care abou
 ```text
 .
 ├── include/
-│   └── smoke_logic.hpp       # hardware-independent logic shared by all tests
+│   └── smoke_logic.hpp
 ├── src/
-│   └── main.cpp              # real M5Stack CoreS3 / M5Unified program
+│   └── main.cpp
 ├── test/
-│   └── native_smoke.cpp      # fast host-side test
+│   └── native_smoke.cpp
 ├── qemu-pio/
-│   ├── platformio.ini        # ESP32-S3 + ESP-IDF QEMU build
-│   ├── sdkconfig.defaults    # 8 MB flash configuration
-│   └── src/main.cpp          # QEMU runtime harness using the shared logic
+│   ├── platformio.ini
+│   ├── sdkconfig.defaults
+│   └── src/main.cpp
+├── sim/
+│   └── cores3/
+│       └── board_topology.json
 ├── tools/
-│   └── make_flash_image.py   # assembles bootloader/partitions/app into SPI flash
-├── wokwi.toml                # optional Wokwi path
-├── diagram.json              # optional Wokwi CoreS3 board
+│   ├── make_flash_image.py
+│   └── validate_cores3_topology.py
+├── docs/
+│   ├── CORES3_HARDWARE_MAP.md
+│   └── TEST_SCOPE.md
+├── wokwi.toml
+├── diagram.json
 └── .github/workflows/ci.yml
 ```
 
@@ -89,11 +125,21 @@ Expected output:
 NATIVE_CHECK:PASS
 ```
 
+## Validate the board topology locally
+
+```bash
+python tools/validate_cores3_topology.py
+```
+
+Expected output includes:
+
+```text
+CORES3_TOPOLOGY_CHECK:PASS
+```
+
 ## QEMU path
 
 The CI workflow intentionally installs the QEMU runtime from Espressif's official prebuilt release rather than using a large Docker image. No Wokwi account/token is involved in this job.
-
-The runtime path is:
 
 ```text
 PlatformIO / ESP-IDF
@@ -115,16 +161,22 @@ app_main()
 QEMU_CHECK:PASS
 ```
 
-## What this does *not* mean
+## What this does *not* mean yet
 
-The QEMU test is an **ESP32-S3 SoC runtime test**, not a complete emulation of every CoreS3 external component. The real CoreS3 program is currently build-tested, while the QEMU runtime harness shares the hardware-independent application logic with it.
+The QEMU test is an **ESP32-S3 SoC runtime test**, not yet a complete emulation of every CoreS3 external component. The board topology is now defined and CI-validated, but the individual external device models still need to be attached to it.
 
-LCD/touch/audio/camera, physical I2C signal quality, power behavior, RF/GNSS reception, sensor noise, vibration, and similar hardware effects still require either more virtual peripheral models or real hardware/HIL testing. See `docs/TEST_SCOPE.md`.
+The next concrete device targets are:
+
+1. ILI9342C LCD -> 320x240 framebuffer / PNG artifact
+2. AW9523B subset used by startup/reset paths
+3. AXP2101 subset used by LCD power/backlight and board startup
+4. FT6336U virtual touch
+5. microSD SPI storage
+6. attachable Port A/B/C virtual devices
+7. GNSS and onboard sensor models
+
+Physical I2C signal integrity, actual power/noise behavior, RF/GNSS reception, vibration, thermal behavior and similar analog effects still require real hardware/HIL testing.
 
 ## Optional Wokwi comparison
 
-The original Wokwi smoke test remains available. If `WOKWI_CLI_TOKEN` is configured as a repository secret, CI also runs the CoreS3 firmware in Wokwi and requires `SIM_CHECK:PASS`. Without the token, this job is skipped and the native/QEMU tests still run normally.
-
-## Next useful extension
-
-A good next experiment is a **virtual UART GNSS source**. That would let CI inject deterministic NMEA/UBX data, dropouts, corrupt packets, delays, and recovery sequences and then judge the firmware's real parser/state behavior automatically.
+The original Wokwi smoke test remains available. If `WOKWI_CLI_TOKEN` is configured as a repository secret, CI also runs the CoreS3 firmware in Wokwi and requires `SIM_CHECK:PASS`. Without the token, this job is skipped and the native/QEMU/topology tests still run normally.
