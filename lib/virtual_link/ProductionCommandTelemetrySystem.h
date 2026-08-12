@@ -126,6 +126,7 @@ struct ProductionCommandTelemetryStats {
   std::uint32_t pending_rejected{0};
   std::uint32_t pending_timeouts{0};
   std::uint32_t pending_busy_rejections{0};
+  std::uint32_t manual_refreshes_sent{0};
   std::uint32_t telemetry_bursts_sent{0};
   std::uint32_t gnss_sent{0};
   std::uint32_t comm_heartbeats_sent{0};
@@ -154,6 +155,7 @@ class ProductionCommandTelemetrySystem {
   static constexpr std::uint32_t kCommandRetryMs = 100;
   static constexpr std::uint32_t kCommandTimeoutMs = 1200;
   static constexpr std::uint8_t kCommandMaxAttempts = 8;
+  static constexpr std::uint32_t kManualRefreshMs = 200;
 
   ProductionCommandTelemetrySystem();
 
@@ -190,6 +192,7 @@ class ProductionCommandTelemetrySystem {
   void servicePending(std::uint32_t now_ms);
   void handleAction(std::uint32_t now_ms,
                     const ProductionCommandTelemetryInput& input);
+  void sendManualRefresh(std::uint32_t now_ms);
 
   void processReceives(std::uint32_t now_ms);
   void processControlRx(std::uint32_t now_ms, const boat::Frame& frame);
@@ -225,6 +228,7 @@ class ProductionCommandTelemetrySystem {
   PendingCommand pending_{};
   ProductionCommandTelemetryStatus status_{};
   ProductionCommandTelemetryStats stats_{};
+  ProductionCommandTelemetryInput current_input_{};
 
   const std::uint32_t comm_boot_id_{0x434f4d39u};
   const std::uint32_t control_boot_id_{0x43545239u};
@@ -245,8 +249,15 @@ class ProductionCommandTelemetrySystem {
   std::uint32_t last_telemetry_send_ms_{0};
   std::uint32_t last_control_frame_rx_ms_{0};
   std::uint32_t last_host_hb_rx_ms_{0};
+  std::uint32_t last_manual_refresh_ms_{0};
   bool has_control_frame_{false};
   bool has_host_hb_{false};
+  bool manual_refresh_enabled_{false};
+  std::uint8_t manual_refresh_mask_{boat::ManualAll};
+  float manual_refresh_left_{0.0f};
+  float manual_refresh_right_{0.0f};
+  float manual_refresh_rear_{0.0f};
+  float manual_refresh_propulsion_{0.0f};
 
   std::uint32_t waypoint_revision_{0};
   std::uint8_t waypoint_count_{0};
