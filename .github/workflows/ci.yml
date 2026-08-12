@@ -44,6 +44,16 @@ jobs:
         run: ./build/production_command_telemetry_sim scenarios/production_command_timeout.csv artifacts/production_command_timeout
       - name: Run full production telemetry failsafe scenario
         run: ./build/production_command_telemetry_sim scenarios/production_telemetry_failsafe.csv artifacts/production_telemetry_failsafe
+      - name: Generate synthetic BOATLOG1 hardware/reference fixtures
+        run: ./build/boatlog_fixture artifacts/phase10_fixture
+      - name: Compare exact BOATLOG1 hardware/reference pair
+        run: ./build/boatlog_replay_cli artifacts/phase10_fixture/observed_exact.bin artifacts/phase10_fixture/reference.bin artifacts/phase10_exact
+      - name: Compare BOATLOG1 with 80 ms clock shift
+        run: ./build/boatlog_replay_cli artifacts/phase10_fixture/observed_shifted_80ms.bin artifacts/phase10_fixture/reference.bin artifacts/phase10_shifted
+      - name: Generate expected mismatch comparison report
+        run: ./build/boatlog_replay_cli artifacts/phase10_fixture/observed_perturbed.bin artifacts/phase10_fixture/reference.bin artifacts/phase10_mismatch --allow-fail
+      - name: Assert perturbed BOATLOG1 is detected as mismatch
+        run: grep -Eq '"pass"[[:space:]]*:[[:space:]]*false' artifacts/phase10_mismatch/summary.json
       - name: Upload simulated CoreS3 screen frames and traces
         uses: actions/upload-artifact@v4
         with:
