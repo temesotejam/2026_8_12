@@ -30,18 +30,26 @@ UiFrame App::update(std::uint32_t now_ms,
                     const SensorSample& sensors,
                     const TouchSample& touch) {
   const bool critical_ok = sensors.i2c_ok && sensors.imu_ok;
+  const bool startup_bno_wait =
+      state_ == RunState::Boot &&
+      sensors.bno_model_active &&
+      sensors.bno_reinitializing;
 
-  if (!critical_ok) {
+  if (!critical_ok && !startup_bno_wait) {
     state_ = RunState::Fault;
     recovery_started_ms_ = 0;
   } else if (state_ == RunState::Fault) {
-    if (recovery_started_ms_ == 0) {
-      recovery_started_ms_ = now_ms;
-    } else if (now_ms - recovery_started_ms_ >= kFaultRecoveryMs) {
-      state_ = RunState::Ready;
-      recovery_started_ms_ = 0;
+    if (critical_ok) {
+      if (recovery_started_ms_ == 0) {
+        recovery_started_ms_ = now_ms;
+      } else if (now_ms - recovery_started_ms_ >= kFaultRecoveryMs) {
+        state_ = RunState::Ready;
+        recovery_started_ms_ = 0;
+      }
     }
-  } else if (state_ == RunState::Boot && now_ms >= kBootTimeMs) {
+  } else if (state_ == RunState::Boot &&
+             now_ms >= kBootTimeMs &&
+             critical_ok) {
     state_ = RunState::Ready;
   }
 
@@ -81,6 +89,11 @@ UiFrame App::update(std::uint32_t now_ms,
   frame.timing_ok = sensors.timing_ok;
   frame.loop_jitter_ms = sensors.loop_jitter_ms;
   frame.sd_ok = sensors.sd_ok;
+  frame.bno_model_active = sensors.bno_model_active;
+  frame.bno_initialized = sensors.bno_initialized;
+  frame.bno_report_fresh = sensors.bno_report_fresh;
+  frame.bno_reinitializing = sensors.bno_reinitializing;
+  frame.bno_report_age_ms = sensors.bno_report_age_ms;
 
   if (!sensors.uart_ok) {
     addWarning(frame.warning, "UART link down");
@@ -95,7 +108,9 @@ UiFrame App::update(std::uint32_t now_ms,
     case RunState::Boot:
       frame.button_enabled = false;
       frame.button_label = "WAIT";
-      frame.message = "Booting...";
+      frame.message = sensors.bno_model_active && sensors.bno_reinitializing
+                          ? "BNO08X startup init"
+                          : "Booting...";
       break;
     case RunState::Ready:
       frame.button_enabled = true;
@@ -114,6 +129,12 @@ UiFrame App::update(std::uint32_t now_ms,
         frame.message = "I2C device NACK";
       } else if (!sensors.i2c_ok) {
         frame.message = "I2C timeout / disconnect";
+      } else if (sensors.bno_model_active && sensors.bno_reinitializing) {
+        frame.message = "BNO08X reinitializing";
+      } else if (sensors.bno_model_active && !sensors.bno_initialized) {
+        frame.message = "BNO08X offline";
+      } else if (sensors.bno_model_active && !sensors.bno_report_fresh) {
+        frame.message = "BNO08X report stale";
       } else if (!sensors.imu_ok) {
         frame.message = "IMU unavailable";
       } else {

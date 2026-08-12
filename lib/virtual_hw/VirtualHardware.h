@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "App.h"
+#include "VirtualBno08x.h"
 
 namespace cores3sim {
 
@@ -28,6 +29,16 @@ struct VirtualHwInput {
   bool sd_connected{true};
   bool sd_fail_write{false};
   std::uint32_t sd_latency_ms{1};
+
+  // Phase 4: optional device-specific BNO08X model.
+  // When false, phase 1-3 direct IMU behavior is preserved.
+  bool bno_model_enabled{false};
+  bool bno_force_reset{false};
+  bool bno_reports_enabled{true};
+  bool bno_stall_reports{false};
+  std::uint32_t bno_report_interval_ms{20};
+  std::uint32_t bno_reinit_delay_ms{300};
+  bool bno_auto_reinit{true};
 };
 
 struct VirtualHwStats {
@@ -58,6 +69,7 @@ class VirtualHardware {
   SensorSample sample(std::uint32_t now_ms);
 
   const VirtualHwStats& stats() const { return stats_; }
+  const Bno08xStats& bnoStats() const { return bno_.stats(); }
 
  private:
   struct PendingGnss {
@@ -70,6 +82,7 @@ class VirtualHardware {
   VirtualHwInput input_{};
   VirtualHwStats stats_{};
   std::vector<PendingGnss> pending_gnss_{};
+  VirtualBno08x bno_{};
 
   float last_pitch_deg_{0.0f};
   bool has_gnss_{false};

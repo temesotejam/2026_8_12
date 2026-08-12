@@ -29,6 +29,13 @@ struct SensorSample {
   bool timing_ok{true};
   std::int32_t loop_jitter_ms{0};
   bool sd_ok{true};
+
+  // Phase 4 BNO08X model health. Appended for source compatibility.
+  bool bno_model_active{false};
+  bool bno_initialized{true};
+  bool bno_report_fresh{true};
+  bool bno_reinitializing{false};
+  std::uint32_t bno_report_age_ms{0};
 };
 
 struct TouchSample {
@@ -53,6 +60,11 @@ struct UiFrame {
   bool timing_ok{true};
   std::int32_t loop_jitter_ms{0};
   bool sd_ok{true};
+  bool bno_model_active{false};
+  bool bno_initialized{true};
+  bool bno_report_fresh{true};
+  bool bno_reinitializing{false};
+  std::uint32_t bno_report_age_ms{0};
   std::string button_label{"WAIT"};
   std::string message{"Booting"};
   std::string warning{};
