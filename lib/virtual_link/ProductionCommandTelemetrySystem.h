@@ -163,6 +163,12 @@ class ProductionCommandTelemetrySystem {
       std::uint32_t now_ms,
       const ProductionCommandTelemetryInput& input);
 
+  // Phase-9 entry point: preserves the production 200 ms manual-command
+  // freshness stream in addition to step()'s transport/command/telemetry work.
+  ProductionCommandTelemetryStatus stepWithManualRefresh(
+      std::uint32_t now_ms,
+      const ProductionCommandTelemetryInput& input);
+
   const ProductionCommandTelemetryStats& stats() const { return stats_; }
   const ProductionUartStats& uartStats() const { return uart_.stats(); }
   Phase9DecoderStats decoderStats() const;
