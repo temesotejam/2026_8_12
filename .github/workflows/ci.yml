@@ -46,38 +46,61 @@ jobs:
   qemu-smoke:
     name: ESP32-S3 QEMU behavior smoke test
     runs-on: ubuntu-latest
-    container:
-      image: espressif/idf:v6.0.2
-      options: --user root
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install QEMU runtime dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0
-          rm -rf /var/lib/apt/lists/*
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
 
-      - name: Install Espressif QEMU
-        run: python "$IDF_PATH/tools/idf_tools.py" install qemu-xtensa
+      - name: Install PlatformIO Core
+        run: python -m pip install --upgrade platformio
 
       - name: Build ESP32-S3 QEMU firmware
-        env:
-          IDF_TARGET: esp32s3
+        run: pio run -d qemu-pio
+
+      - name: Assemble QEMU flash image
         run: |
-          . "$IDF_PATH/export.sh"
-          cd qemu
-          idf.py build
+          python tools/make_flash_image.py \
+            --size 8MB \
+            --output qemu-pio/qemu_flash.bin \
+            --segment 0x0:qemu-pio/.pio/build/esp32s3-qemu/bootloader.bin \
+            --segment 0x8000:qemu-pio/.pio/build/esp32s3-qemu/partitions.bin \
+            --segment 0x10000:qemu-pio/.pio/build/esp32s3-qemu/firmware.bin
+
+      - name: Install QEMU runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0 xz-utils
+
+      - name: Download official Espressif QEMU
+        run: |
+          QEMU_VERSION='esp-develop-9.2.2-20260417'
+          QEMU_ARCHIVE='qemu-xtensa-softmmu-esp_develop_9.2.2_20260417-x86_64-linux-gnu.tar.xz'
+          QEMU_SHA256='0eecb2a34a5586c0e59110f77b9343b7b336e82fdb0e1a30e1dc1bab8a547e35'
+          curl --fail --location --retry 3 \
+            "https://github.com/espressif/qemu/releases/download/${QEMU_VERSION}/${QEMU_ARCHIVE}" \
+            --output qemu-xtensa.tar.xz
+          echo "${QEMU_SHA256}  qemu-xtensa.tar.xz" | sha256sum --check --strict
+          mkdir -p .qemu
+          tar -xJf qemu-xtensa.tar.xz -C .qemu
+          QEMU_BIN="$(find .qemu -type f -name qemu-system-xtensa -print -quit)"
+          test -n "$QEMU_BIN"
+          chmod +x "$QEMU_BIN"
+          echo "QEMU_BIN=$QEMU_BIN" >> "$GITHUB_ENV"
+          "$QEMU_BIN" --version
 
       - name: Run firmware in official Espressif QEMU
-        env:
-          IDF_TARGET: esp32s3
         run: |
-          . "$IDF_PATH/export.sh"
-          cd qemu
           set +e
-          timeout --signal=INT 12s idf.py qemu > qemu.log 2>&1
+          timeout --signal=INT 12s "$QEMU_BIN" \
+            -nographic \
+            -machine esp32s3 \
+            -drive file=qemu-pio/qemu_flash.bin,if=mtd,format=raw \
+            -serial mon:stdio \
+            > qemu.log 2>&1
           status=$?
           set -e
           cat qemu.log
@@ -96,7 +119,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: esp32s3-qemu-log
-          path: qemu/qemu.log
+          path: qemu.log
           if-no-files-found: ignore
 
   wokwi-smoke:
@@ -133,7 +156,7 @@ jobs:
 
       - name: Explain missing Wokwi token
         if: ${{ env.WOKWI_CLI_TOKEN == '' }}
-        run: echo "::notice::Wokwi is optional. Add WOKWI_CLI_TOKEN only if you want the Wokwi comparison run."
+        run: echo "::notice::Wokwi is optional. Add WOKWI_CLI_TOKEN only if you want the comparison run."
 
       - name: Upload Wokwi serial log
         if: ${{ always() && env.WOKWI_CLI_TOKEN != '' }}
