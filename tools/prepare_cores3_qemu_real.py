@@ -4,7 +4,7 @@
 This stage keeps the already-tested SPI2/ILI9342C model, then adds:
 - digital GPIO OUT/ENABLE/IN behavior,
 - GPIO3 -> LCD CS and GPIO35 -> LCD D/C,
-- GPIO11/12 bit-banged I2C through QEMU's bitbang bridge,
+- GPIO12/11 bit-banged I2C through QEMU's bitbang bridge,
 - ESP32 I2C0 at the real ESP32-S3 MMIO address,
 - one shared I2C bus for both bit-bang and hardware-controller traffic,
 - small register-backed stand-ins for AXP2101, AW9523B and GC0308.
@@ -181,19 +181,19 @@ def main() -> int:
 
     cores3_i2c_block = gpio_block + """
 
-    /* CoreS3 internal I2C fabric. GPIO11/12 bit-bang probing and the ESP32-S3
-     * I2C0 controller intentionally share the very same QEMU I2C bus. */
+    /* CoreS3 internal I2C fabric. GPIO12=SDA and GPIO11=SCL, exactly as on
+     * the physical CoreS3. Bit-bang probing and I2C0 share one QEMU bus. */
     {
         DeviceState *gpio_i2c = qdev_new(TYPE_GPIO_I2C);
         sysbus_realize_and_unref(SYS_BUS_DEVICE(gpio_i2c), &error_fatal);
         I2CBus *cores3_bus = I2C_BUS(qdev_get_child_bus(gpio_i2c, "i2c"));
 
-        qdev_connect_gpio_out(DEVICE(&ss->gpio), 11,
-                              qdev_get_gpio_in(gpio_i2c, BITBANG_I2C_SDA));
         qdev_connect_gpio_out(DEVICE(&ss->gpio), 12,
+                              qdev_get_gpio_in(gpio_i2c, BITBANG_I2C_SDA));
+        qdev_connect_gpio_out(DEVICE(&ss->gpio), 11,
                               qdev_get_gpio_in(gpio_i2c, BITBANG_I2C_SCL));
         qdev_connect_gpio_out(gpio_i2c, 0,
-                              qdev_get_gpio_in(DEVICE(&ss->gpio), 11));
+                              qdev_get_gpio_in(DEVICE(&ss->gpio), 12));
 
         sysbus_realize(SYS_BUS_DEVICE(&ss->i2c0), &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ss->i2c0), 0);
@@ -209,7 +209,7 @@ def main() -> int:
                               cores3_aw9523_rom, sizeof(cores3_aw9523_rom));
         at24c_eeprom_init_rom(cores3_bus, 0x21, 256,
                               cores3_gc0308_rom, sizeof(cores3_gc0308_rom));
-        qemu_log("CoreS3 virtual I2C fabric attached on GPIO11/12 + I2C0\\n");
+        qemu_log("CoreS3 virtual I2C fabric attached: GPIO12=SDA GPIO11=SCL + I2C0\\n");
     }
 """
     text = replace_once(text, gpio_block, cores3_i2c_block, "CoreS3 I2C fabric")
