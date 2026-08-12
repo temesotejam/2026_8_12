@@ -1,0 +1,128 @@
+name: Real CoreS3 firmware QEMU probe
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cores3-qemu-probe:
+    name: Real M5Unified CoreS3 firmware in ESP32-S3 QEMU
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install PlatformIO Core
+        run: python -m pip install --upgrade platformio
+
+      - name: Build real CoreS3 Arduino/M5Unified firmware
+        run: pio run
+
+      - name: Assemble 16 MB CoreS3 flash image
+        shell: bash
+        run: |
+          build=.pio/build/m5stack-cores3
+          segments=(
+            --segment "0x0:${build}/bootloader.bin"
+            --segment "0x8000:${build}/partitions.bin"
+            --segment "0x10000:${build}/firmware.bin"
+          )
+          if [ -f "${build}/boot_app0.bin" ]; then
+            echo "Including Arduino boot_app0.bin at 0xe000"
+            segments+=(--segment "0xe000:${build}/boot_app0.bin")
+          else
+            echo "boot_app0.bin not emitted; leaving OTA data erased"
+          fi
+          python tools/make_flash_image.py \
+            --size 16MB \
+            --output artifacts/cores3-real-qemu-flash.bin \
+            "${segments[@]}"
+
+      - name: Install QEMU runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0 xz-utils
+
+      - name: Download official Espressif QEMU
+        run: |
+          QEMU_VERSION='esp-develop-9.2.2-20260417'
+          QEMU_ARCHIVE='qemu-xtensa-softmmu-esp_develop_9.2.2_20260417-x86_64-linux-gnu.tar.xz'
+          QEMU_SHA256='0eecb2a34a5586c0e59110f77b9343b7b336e82fdb0e1a30e1dc1bab8a547e35'
+          curl --fail --location --retry 3 \
+            "https://github.com/espressif/qemu/releases/download/${QEMU_VERSION}/${QEMU_ARCHIVE}" \
+            --output qemu-xtensa.tar.xz
+          echo "${QEMU_SHA256}  qemu-xtensa.tar.xz" | sha256sum --check --strict
+          mkdir -p .qemu
+          tar -xJf qemu-xtensa.tar.xz -C .qemu
+          QEMU_BIN="$(find .qemu -type f -name qemu-system-xtensa -print -quit)"
+          test -n "$QEMU_BIN"
+          chmod +x "$QEMU_BIN"
+          echo "QEMU_BIN=$QEMU_BIN" >> "$GITHUB_ENV"
+          "$QEMU_BIN" --version
+
+      - name: Boot the real CoreS3 firmware in QEMU
+        shell: bash
+        run: |
+          set +e
+          timeout --signal=INT 20s "$QEMU_BIN" \
+            -nographic \
+            -machine esp32s3 \
+            -m 8M \
+            -drive file=artifacts/cores3-real-qemu-flash.bin,if=mtd,format=raw \
+            -serial mon:stdio \
+            > cores3-real-qemu.log 2>&1
+          status=$?
+          set -e
+          cat cores3-real-qemu.log
+          echo "QEMU_EXIT_STATUS=${status}" >> "$GITHUB_ENV"
+          if [ "$status" -ne 0 ] && [ "$status" -ne 124 ] && [ "$status" -ne 130 ]; then
+            echo "::warning::QEMU exited unexpectedly with status $status"
+          fi
+
+      - name: Classify M5Unified boot progress
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          log = Path('cores3-real-qemu.log').read_text(errors='replace')
+          stages = [
+              'SERIAL0_READY',
+              'ARDUINO_SERIAL_READY',
+              'M5_BEGIN_ENTER',
+              'M5_BEGIN_EXIT',
+              'DISPLAY_DRAW_ENTER',
+              'DISPLAY_DRAW_EXIT',
+              'SETUP_EXIT',
+              'SIM_CHECK_PASS',
+          ]
+          print('CORES3_QEMU_REAL_FIRMWARE_PROBE')
+          last = 'ROM/bootloader only'
+          for stage in stages:
+              present = f'CORES3_QEMU_PROBE:{stage}' in log
+              print(f'  {stage}: {"YES" if present else "NO"}')
+              if present:
+                  last = stage
+          print(f'CORES3_QEMU_LAST_STAGE:{last}')
+          if 'CORES3_QEMU_PROBE:SERIAL0_READY' not in log:
+              raise SystemExit('real CoreS3 application did not reach setup()/UART0 probe')
+          print('CORES3_QEMU_APPLICATION_BOOT:PASS')
+          PY
+
+      - name: Upload real CoreS3 QEMU probe
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cores3-real-firmware-qemu-probe
+          path: |
+            cores3-real-qemu.log
+            artifacts/cores3-real-qemu-flash.bin
+          if-no-files-found: warn
