@@ -107,6 +107,14 @@ UiFrame App::update(std::uint32_t now_ms,
   frame.ina_current_a = sensors.ina_current_a;
   frame.ina_power_w = sensors.ina_power_w;
   frame.ina_shunt_voltage_v = sensors.ina_shunt_voltage_v;
+  frame.tof_model_active = sensors.tof_model_active;
+  frame.tof_device_ok = sensors.tof_device_ok;
+  frame.tof_initialized = sensors.tof_initialized;
+  frame.tof_reinitializing = sensors.tof_reinitializing;
+  frame.tof_frame_fresh = sensors.tof_frame_fresh;
+  frame.tof_frame_age_ms = sensors.tof_frame_age_ms;
+  frame.tof_valid_zones = sensors.tof_valid_zones;
+  frame.tof_min_distance_mm = sensors.tof_min_distance_mm;
 
   if (!sensors.uart_ok) {
     addWarning(frame.warning, "UART link down");
@@ -135,6 +143,21 @@ UiFrame App::update(std::uint32_t now_ms,
     }
     if (sensors.ina_math_overflow) {
       addWarning(frame.warning, "INA226 math overflow");
+    }
+  }
+
+  if (sensors.tof_model_active) {
+    if (!sensors.tof_device_ok) {
+      addWarning(frame.warning, "VL53L5CX offline");
+    } else if (sensors.tof_reinitializing) {
+      addWarning(frame.warning, "VL53L5CX init");
+    } else if (!sensors.tof_initialized) {
+      addWarning(frame.warning, "VL53L5CX uninitialized");
+    } else if (!sensors.tof_frame_fresh) {
+      addWarning(frame.warning, "VL53L5CX frame stale");
+    }
+    if (sensors.tof_initialized && sensors.tof_valid_zones < 64) {
+      addWarning(frame.warning, "VL53L5CX invalid zones");
     }
   }
 
