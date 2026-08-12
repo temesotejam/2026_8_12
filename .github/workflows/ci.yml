@@ -26,6 +26,8 @@ jobs:
         run: ./build/cores3_sim scenarios/bno08x_faults.csv artifacts/bno08x_faults
       - name: Run INA226 conversion and recovery scenario
         run: ./build/cores3_sim scenarios/ina226_faults.csv artifacts/ina226_faults
+      - name: Run VL53L5CX multizone and recovery scenario
+        run: ./build/cores3_sim scenarios/vl53l5cx_faults.csv artifacts/vl53l5cx_faults
       - name: Upload simulated CoreS3 screen frames and traces
         uses: actions/upload-artifact@v4
         with:
