@@ -51,6 +51,16 @@ struct SensorSample {
   float ina_current_a{0.0f};
   float ina_power_w{0.0f};
   float ina_shunt_voltage_v{0.0f};
+
+  // Phase 6 VL53L5CX 8x8 frame health.
+  bool tof_model_active{false};
+  bool tof_device_ok{true};
+  bool tof_initialized{true};
+  bool tof_reinitializing{false};
+  bool tof_frame_fresh{true};
+  std::uint32_t tof_frame_age_ms{0};
+  std::uint8_t tof_valid_zones{64};
+  std::uint16_t tof_min_distance_mm{0};
 };
 
 struct TouchSample {
@@ -93,6 +103,14 @@ struct UiFrame {
   float ina_current_a{0.0f};
   float ina_power_w{0.0f};
   float ina_shunt_voltage_v{0.0f};
+  bool tof_model_active{false};
+  bool tof_device_ok{true};
+  bool tof_initialized{true};
+  bool tof_reinitializing{false};
+  bool tof_frame_fresh{true};
+  std::uint32_t tof_frame_age_ms{0};
+  std::uint8_t tof_valid_zones{64};
+  std::uint16_t tof_min_distance_mm{0};
   std::string button_label{"WAIT"};
   std::string message{"Booting"};
   std::string warning{};
