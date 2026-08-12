@@ -1,0 +1,15 @@
+# Phase-7 dual-controller UART fault scenario.
+# fault codes: 0 none, 1 drop, 2 corrupt/CRC, 3 framing
+t_ms,c2c_connected,c2m_connected,c2c_latency_ms,c2m_latency_ms,c2c_fault,c2m_fault,gnss_valid,send_stop
+0,1,1,2,2,0,0,1,0
+500,1,1,2,2,2,0,1,0
+700,1,1,2,2,1,0,1,0
+900,0,1,2,2,0,0,1,0
+1300,0,1,2,2,0,0,1,0
+1450,0,1,2,2,0,0,1,0
+1500,1,1,2,2,0,0,1,0
+1700,1,0,2,2,0,0,1,0
+2100,1,0,2,2,0,0,1,0
+2250,1,0,2,2,0,0,1,0
+2300,1,1,2,2,0,0,1,0
+2320,1,1,2,2,0,0,1,0

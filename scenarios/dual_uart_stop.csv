@@ -1,0 +1,7 @@
+# Phase-7 healthy-link STOP propagation scenario.
+t_ms,c2c_connected,c2m_connected,c2c_latency_ms,c2m_latency_ms,c2c_fault,c2m_fault,gnss_valid,send_stop
+0,1,1,2,2,0,0,1,0
+500,1,1,2,2,0,0,1,0
+600,1,1,2,2,0,0,1,1
+620,1,1,2,2,0,0,1,0
+800,1,1,2,2,0,0,1,0

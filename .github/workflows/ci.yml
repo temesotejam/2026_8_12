@@ -28,6 +28,10 @@ jobs:
         run: ./build/cores3_sim scenarios/ina226_faults.csv artifacts/ina226_faults
       - name: Run VL53L5CX multizone and recovery scenario
         run: ./build/cores3_sim scenarios/vl53l5cx_faults.csv artifacts/vl53l5cx_faults
+      - name: Run dual-controller UART fault scenario
+        run: ./build/dual_controller_sim scenarios/dual_uart_faults.csv artifacts/dual_uart_faults
+      - name: Run healthy-link STOP propagation scenario
+        run: ./build/dual_controller_sim scenarios/dual_uart_stop.csv artifacts/dual_uart_stop
       - name: Upload simulated CoreS3 screen frames and traces
         uses: actions/upload-artifact@v4
         with:
