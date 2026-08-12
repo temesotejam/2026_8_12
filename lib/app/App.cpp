@@ -94,6 +94,19 @@ UiFrame App::update(std::uint32_t now_ms,
   frame.bno_report_fresh = sensors.bno_report_fresh;
   frame.bno_reinitializing = sensors.bno_reinitializing;
   frame.bno_report_age_ms = sensors.bno_report_age_ms;
+  frame.ina_model_active = sensors.ina_model_active;
+  frame.ina_device_ok = sensors.ina_device_ok;
+  frame.ina_initialized = sensors.ina_initialized;
+  frame.ina_reinitializing = sensors.ina_reinitializing;
+  frame.ina_conversion_fresh = sensors.ina_conversion_fresh;
+  frame.ina_calibration_ok = sensors.ina_calibration_ok;
+  frame.ina_range_ok = sensors.ina_range_ok;
+  frame.ina_math_overflow = sensors.ina_math_overflow;
+  frame.ina_measurement_age_ms = sensors.ina_measurement_age_ms;
+  frame.ina_bus_voltage_v = sensors.ina_bus_voltage_v;
+  frame.ina_current_a = sensors.ina_current_a;
+  frame.ina_power_w = sensors.ina_power_w;
+  frame.ina_shunt_voltage_v = sensors.ina_shunt_voltage_v;
 
   if (!sensors.uart_ok) {
     addWarning(frame.warning, "UART link down");
@@ -103,6 +116,27 @@ UiFrame App::update(std::uint32_t now_ms,
   if (!sensors.gnss_ok) addWarning(frame.warning, "GNSS data stale");
   if (!sensors.timing_ok) addWarning(frame.warning, "Control loop jitter");
   if (!sensors.sd_ok) addWarning(frame.warning, "SD write failed");
+
+  if (sensors.ina_model_active) {
+    if (!sensors.ina_device_ok) {
+      addWarning(frame.warning, "INA226 offline");
+    } else if (sensors.ina_reinitializing) {
+      addWarning(frame.warning, "INA226 init");
+    } else if (!sensors.ina_initialized) {
+      addWarning(frame.warning, "INA226 uninitialized");
+    } else if (!sensors.ina_conversion_fresh) {
+      addWarning(frame.warning, "INA226 data stale");
+    }
+    if (!sensors.ina_calibration_ok) {
+      addWarning(frame.warning, "INA226 uncalibrated");
+    }
+    if (!sensors.ina_range_ok) {
+      addWarning(frame.warning, "INA226 input range");
+    }
+    if (sensors.ina_math_overflow) {
+      addWarning(frame.warning, "INA226 math overflow");
+    }
+  }
 
   switch (state_) {
     case RunState::Boot:
