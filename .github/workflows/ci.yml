@@ -22,6 +22,8 @@ jobs:
         run: ./build/cores3_sim scenarios/bus_faults.csv artifacts/bus_faults
       - name: Run transport timing and SD fault scenario
         run: ./build/cores3_sim scenarios/transport_faults.csv artifacts/transport_faults
+      - name: Run BNO08X reset and report-stall scenario
+        run: ./build/cores3_sim scenarios/bno08x_faults.csv artifacts/bno08x_faults
       - name: Upload simulated CoreS3 screen frames and traces
         uses: actions/upload-artifact@v4
         with:
