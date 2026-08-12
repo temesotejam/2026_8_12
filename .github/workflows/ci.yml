@@ -1,4 +1,4 @@
-name: CoreS3 CI
+name: CoreS3 virtual CI
 
 on:
   push:
@@ -9,8 +9,24 @@ permissions:
   contents: read
 
 jobs:
+  native-smoke:
+    name: Native shared-logic smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build native test
+        run: g++ -std=c++17 -Wall -Wextra -Werror -Iinclude test/native_smoke.cpp -o native-smoke
+
+      - name: Run native test
+        run: ./native-smoke | tee native-smoke.log
+
+      - name: Require native PASS
+        run: grep -Fq 'NATIVE_CHECK:PASS' native-smoke.log
+
   build:
-    name: PlatformIO build
+    name: PlatformIO CoreS3 build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -27,8 +43,64 @@ jobs:
       - name: Build CoreS3 firmware
         run: pio run
 
+  qemu-smoke:
+    name: ESP32-S3 QEMU behavior smoke test
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/idf:v6.0.2
+      options: --user root
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install QEMU runtime dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0
+          rm -rf /var/lib/apt/lists/*
+
+      - name: Install Espressif QEMU
+        run: python "$IDF_PATH/tools/idf_tools.py" install qemu-xtensa
+
+      - name: Build ESP32-S3 QEMU firmware
+        env:
+          IDF_TARGET: esp32s3
+        run: |
+          . "$IDF_PATH/export.sh"
+          cd qemu
+          idf.py build
+
+      - name: Run firmware in official Espressif QEMU
+        env:
+          IDF_TARGET: esp32s3
+        run: |
+          . "$IDF_PATH/export.sh"
+          cd qemu
+          set +e
+          timeout --signal=INT 12s idf.py qemu > qemu.log 2>&1
+          status=$?
+          set -e
+          cat qemu.log
+          if [ "$status" -ne 0 ] && [ "$status" -ne 124 ] && [ "$status" -ne 130 ]; then
+            echo "QEMU exited unexpectedly with status $status"
+            exit "$status"
+          fi
+          grep -Fq 'QEMU_BOOT:ESP32S3' qemu.log
+          grep -Fq 'QEMU_HEARTBEAT:1' qemu.log
+          grep -Fq 'QEMU_HEARTBEAT:2' qemu.log
+          grep -Fq 'QEMU_HEARTBEAT:3' qemu.log
+          grep -Fq 'QEMU_CHECK:PASS' qemu.log
+
+      - name: Upload QEMU serial log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: esp32s3-qemu-log
+          path: qemu/qemu.log
+          if-no-files-found: ignore
+
   wokwi-smoke:
-    name: Wokwi behavior smoke test
+    name: Wokwi behavior smoke test (optional)
     needs: build
     runs-on: ubuntu-latest
     env:
@@ -49,7 +121,6 @@ jobs:
         run: pio run
 
       - name: Run firmware in Wokwi
-        id: wokwi
         if: ${{ env.WOKWI_CLI_TOKEN != '' }}
         uses: wokwi/wokwi-ci-action@v1
         with:
@@ -62,7 +133,7 @@ jobs:
 
       - name: Explain missing Wokwi token
         if: ${{ env.WOKWI_CLI_TOKEN == '' }}
-        run: echo "::notice::Wokwi simulation skipped. Add repository secret WOKWI_CLI_TOKEN to enable the behavior test."
+        run: echo "::notice::Wokwi is optional. Add WOKWI_CLI_TOKEN only if you want the Wokwi comparison run."
 
       - name: Upload Wokwi serial log
         if: ${{ always() && env.WOKWI_CLI_TOKEN != '' }}

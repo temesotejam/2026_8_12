@@ -1,14 +1,15 @@
 #include <Arduino.h>
 #include <M5Unified.h>
 
+#include "smoke_logic.hpp"
+
 namespace {
 constexpr uint32_t kHeartbeatPeriodMs = 1000;
-constexpr uint32_t kPassHeartbeatCount = 3;
 
 uint32_t lastHeartbeatMs = 0;
-uint32_t heartbeatCount = 0;
 bool displayReady = false;
 bool resultReported = false;
+smoke::HeartbeatGate heartbeatGate{3};
 }  // namespace
 
 void setup() {
@@ -23,14 +24,14 @@ void setup() {
   M5.Display.setTextColor(TFT_GREEN, TFT_BLACK);
   M5.Display.setTextSize(2);
   M5.Display.setCursor(8, 8);
-  M5.Display.println("CoreS3 / Wokwi");
+  M5.Display.println("CoreS3 / virtual CI");
   M5.Display.println("Smoke test");
 
   const int width = M5.Display.width();
   const int height = M5.Display.height();
   displayReady = width > 0 && height > 0;
 
-  Serial.println("BOOT:CORE_S3_SMOKE_V1");
+  Serial.println("BOOT:CORE_S3_SMOKE_V2");
   Serial.printf("DISPLAY:%dx%d\n", width, height);
 
   if (!displayReady) {
@@ -51,16 +52,16 @@ void loop() {
   }
 
   lastHeartbeatMs += kHeartbeatPeriodMs;
-  ++heartbeatCount;
+  const auto heartbeat = heartbeatGate.tick();
 
-  Serial.printf("HEARTBEAT:%lu\n", static_cast<unsigned long>(heartbeatCount));
+  Serial.printf("HEARTBEAT:%lu\n", static_cast<unsigned long>(heartbeat.count));
 
   M5.Display.setCursor(8, 70);
-  M5.Display.printf("Heartbeat: %lu   ", static_cast<unsigned long>(heartbeatCount));
+  M5.Display.printf("Heartbeat: %lu   ", static_cast<unsigned long>(heartbeat.count));
   M5.Display.setCursor(8, 95);
   M5.Display.printf("Uptime: %lu s   ", static_cast<unsigned long>(now / 1000));
 
-  if (!resultReported && displayReady && heartbeatCount >= kPassHeartbeatCount) {
+  if (!resultReported && displayReady && heartbeat.just_passed) {
     Serial.println("SIM_CHECK:PASS");
     M5.Display.setCursor(8, 130);
     M5.Display.setTextColor(TFT_CYAN, TFT_BLACK);
