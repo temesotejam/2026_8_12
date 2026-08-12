@@ -14,14 +14,16 @@ jobs:
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
       - name: Build host simulator and tests
         run: cmake --build build --parallel
-      - name: Run logic tests
+      - name: Run logic and virtual hardware tests
         run: ctest --test-dir build --output-on-failure
-      - name: Run demonstration scenario
-        run: ./build/cores3_sim scenarios/demo.csv artifacts
-      - name: Upload simulated CoreS3 screen frames
+      - name: Run normal demonstration scenario
+        run: ./build/cores3_sim scenarios/demo.csv artifacts/demo
+      - name: Run I2C and UART fault-injection scenario
+        run: ./build/cores3_sim scenarios/bus_faults.csv artifacts/bus_faults
+      - name: Upload simulated CoreS3 screen frames and traces
         uses: actions/upload-artifact@v4
         with:
-          name: cores3-sim-frames
+          name: cores3-sim-artifacts
           path: artifacts/
           if-no-files-found: error
 
