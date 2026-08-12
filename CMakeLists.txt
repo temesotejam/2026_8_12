@@ -24,7 +24,11 @@ target_link_libraries(virtual_hw_tests PRIVATE virtual_hw)
 add_executable(integration_tests tests/test_integration.cpp)
 target_link_libraries(integration_tests PRIVATE app_logic virtual_hw)
 
+add_executable(phase3_tests tests/test_phase3.cpp)
+target_link_libraries(phase3_tests PRIVATE app_logic virtual_hw)
+
 enable_testing()
 add_test(NAME app_logic_tests COMMAND app_tests)
 add_test(NAME virtual_hardware_tests COMMAND virtual_hw_tests)
 add_test(NAME integration_tests COMMAND integration_tests)
+add_test(NAME phase3_fault_tests COMMAND phase3_tests)
