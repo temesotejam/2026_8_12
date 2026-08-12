@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "board": {
+    "name": "M5Stack CoreS3",
+    "sku": "K128",
+    "soc": "ESP32-S3",
+    "flash_mb": 16,
+    "psram_mb": 8
+  },
+  "sources": {
+    "official_product": "https://docs.m5stack.com/en/core/CoreS3",
+    "official_schematic": "https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/490/Sch_M5_CoreS3_v1.0.pdf",
+    "stack_compatibility_base_din": "https://docs.m5stack.com/en/compatible_stack?base=M132&host=K128"
+  },
+  "external_ports": {
+    "A": {
+      "connector": "HY2.0-4P",
+      "color_convention": "red / I2C",
+      "physical_location": "CoreS3 main unit",
+      "pins": {"black": "GND", "red": "5V", "yellow": "GPIO2 / SDA", "white": "GPIO1 / SCL"},
+      "m5_bus": {"yellow_gpio": 2, "yellow_bus_pin": 19, "white_gpio": 1, "white_bus_pin": 20}
+    },
+    "B": {
+      "connector": "HY2.0-4P",
+      "color_convention": "black / general IO",
+      "physical_location": "Base DIN via M5-Bus",
+      "pins": {"black": "GND", "red": "5V", "yellow": "GPIO9 / PB_OUT", "white": "GPIO8 / PB_IN"},
+      "m5_bus": {"yellow_gpio": 9, "yellow_bus_pin": 10, "white_gpio": 8, "white_bus_pin": 4}
+    },
+    "C": {
+      "connector": "HY2.0-4P",
+      "color_convention": "blue / UART",
+      "physical_location": "Base DIN via M5-Bus",
+      "pins": {"black": "GND", "red": "5V", "yellow": "GPIO17 / PC_TX", "white": "GPIO18 / PC_RX"},
+      "m5_bus": {"yellow_gpio": 17, "yellow_bus_pin": 16, "white_gpio": 18, "white_bus_pin": 15}
+    }
+  },
+  "m5_bus": [
+    {"pin": 1, "signal": "GND"}, {"pin": 2, "signal": "GPIO10 / ADC"},
+    {"pin": 3, "signal": "GND"}, {"pin": 4, "signal": "GPIO8 / PB_IN"},
+    {"pin": 5, "signal": "GND"}, {"pin": 6, "signal": "RST / EN"},
+    {"pin": 7, "signal": "GPIO37 / SPI_MOSI"}, {"pin": 8, "signal": "GPIO5 / GPIO"},
+    {"pin": 9, "signal": "GPIO35 / SPI_MISO"}, {"pin": 10, "signal": "GPIO9 / PB_OUT"},
+    {"pin": 11, "signal": "GPIO36 / SPI_SCK"}, {"pin": 12, "signal": "3V3"},
+    {"pin": 13, "signal": "GPIO44 / RXD0"}, {"pin": 14, "signal": "GPIO43 / TXD0"},
+    {"pin": 15, "signal": "GPIO18 / PC_RX"}, {"pin": 16, "signal": "GPIO17 / PC_TX"},
+    {"pin": 17, "signal": "GPIO12 / Internal_I2C_SDA"}, {"pin": 18, "signal": "GPIO11 / Internal_I2C_SCL"},
+    {"pin": 19, "signal": "GPIO2 / PortA_SDA"}, {"pin": 20, "signal": "GPIO1 / PortA_SCL"},
+    {"pin": 21, "signal": "GPIO6 / GPIO"}, {"pin": 22, "signal": "GPIO7 / GPIO"},
+    {"pin": 23, "signal": "GPIO13 / I2S_DOUT"}, {"pin": 24, "signal": "GPIO0 / I2S_LRCK"},
+    {"pin": 25, "signal": "HPWR / HVIN (Base DIN)"}, {"pin": 26, "signal": "GPIO14 / I2S_DIN"},
+    {"pin": 27, "signal": "HPWR / HVIN (Base DIN)"}, {"pin": 28, "signal": "5V"},
+    {"pin": 29, "signal": "HPWR / HVIN (Base DIN)"}, {"pin": 30, "signal": "BAT"}
+  ],
+  "buses": {
+    "display_sd_spi": {
+      "mosi_gpio": 37,
+      "sck_gpio": 36,
+      "shared_gpio35_roles": ["LCD_DC", "SD_MISO"],
+      "devices": {
+        "ILI9342C": {"resolution": [320, 240], "cs_gpio": 3, "dc_gpio": 35, "reset": "AW9523B.P1_1", "backlight": "AXP2101.DLDO1", "power": "AXP2101.LX1"},
+        "microSD": {"miso_gpio": 35, "cs_gpio": 4}
+      }
+    },
+    "internal_i2c": {
+      "sda_gpio": 12,
+      "scl_gpio": 11,
+      "devices": [
+        {"name": "AXP2101", "address": "0x34"}, {"name": "AW9523B", "address": "0x58"},
+        {"name": "BM8563", "address": "0x51"}, {"name": "BMI270", "address": "0x69"},
+        {"name": "ES7210", "address": "0x40"}, {"name": "AW88298", "address": "0x36"},
+        {"name": "FT6336U", "address": "0x38"}, {"name": "GC0308", "address": "0x21"},
+        {"name": "LTR-553ALS-WA", "address": "0x23"}
+      ]
+    },
+    "bmi270_aux_i2c": {
+      "devices": [{"name": "BMM150", "address": "0x10", "note": "Behind BMI270 sensor-hub auxiliary I2C; not a direct ESP32-S3 internal-I2C device"}]
+    }
+  },
+  "peripherals": {
+    "touch": {"device": "FT6336U", "i2c_address": "0x38", "reset": "AW9523B.P0_0", "interrupt": "AW9523B.P1_2"},
+    "camera": {
+      "device": "GC0308", "control_address": "0x21", "sccb_sda_gpio": 12, "sccb_scl_gpio": 11,
+      "pclk_gpio": 45, "vsync_gpio": 46, "href_gpio": 38,
+      "data_gpio": [39, 40, 41, 42, 15, 16, 48, 47], "reset": "AW9523B.P1_0"
+    },
+    "proximity": {"device": "LTR-553ALS-WA", "i2c_address": "0x23", "sda_gpio": 12, "scl_gpio": 11},
+    "audio": {
+      "i2s_bck_gpio": 34, "i2s_wck_gpio": 33, "speaker_dout_gpio": 13, "microphone_din_gpio": 14, "mclk_gpio": 0,
+      "codec": {"name": "ES7210", "address": "0x40"},
+      "amplifier": {"name": "AW88298", "address": "0x36", "reset": "AW9523B.P0_2", "interrupt": "AW9523B.P1_3"}
+    },
+    "imu": {"name": "BMI270", "address": "0x69", "magnetometer": "BMM150 via BMI270 auxiliary bus"},
+    "rtc": {"name": "BM8563", "address": "0x51", "wake_signal": "AXP2101.IRQ / AXP_WAKEUP path"},
+    "usb_uart": {"uart0_rx_gpio": 44, "uart0_tx_gpio": 43}
+  },
+  "emulation_status": {
+    "esp32s3_soc_qemu": "working",
+    "coreS3_production_build": "working",
+    "connector_topology_contract": "working",
+    "m5_bus_topology_contract": "working",
+    "ili9342c_spi_model": "planned",
+    "microSD_spi_model": "planned",
+    "internal_i2c_device_models": "planned",
+    "virtual_external_port_devices": "planned"
+  }
+}
