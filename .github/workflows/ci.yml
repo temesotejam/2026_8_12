@@ -38,6 +38,8 @@ jobs:
         run: ./build/production_protocol_sim scenarios/production_protocol_safety.csv artifacts/production_protocol_safety
       - name: Run production command retry and telemetry scenario
         run: ./build/production_command_telemetry_sim scenarios/production_command_retry.csv artifacts/production_command_retry
+      - name: Run production manual refresh scenario
+        run: ./build/production_command_telemetry_sim scenarios/production_manual_refresh.csv artifacts/production_manual_refresh
       - name: Run production malformed command timeout scenario
         run: ./build/production_command_telemetry_sim scenarios/production_command_timeout.csv artifacts/production_command_timeout
       - name: Run full production telemetry failsafe scenario
