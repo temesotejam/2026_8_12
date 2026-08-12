@@ -9,6 +9,19 @@ permissions:
   contents: read
 
 jobs:
+  hardware-map:
+    name: CoreS3 hardware topology contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Validate CoreS3 topology
+        run: python tools/validate_cores3_topology.py | tee cores3-topology.log
+
+      - name: Require topology PASS
+        run: grep -Fq 'CORES3_TOPOLOGY_CHECK:PASS' cores3-topology.log
+
   native-smoke:
     name: Native shared-logic smoke test
     runs-on: ubuntu-latest
