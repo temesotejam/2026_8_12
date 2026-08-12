@@ -185,7 +185,7 @@ def main() -> int:
      * I2C0 controller intentionally share the very same QEMU I2C bus. */
     {
         DeviceState *gpio_i2c = qdev_new(TYPE_GPIO_I2C);
-        qdev_realize_and_unref(gpio_i2c, NULL, &error_fatal);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(gpio_i2c), &error_fatal);
         I2CBus *cores3_bus = I2C_BUS(qdev_get_child_bus(gpio_i2c, "i2c"));
 
         qdev_connect_gpio_out(DEVICE(&ss->gpio), 11,
