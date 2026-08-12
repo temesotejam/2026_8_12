@@ -1,0 +1,5 @@
+/build/
+/.pio/
+/artifacts/
+.vscode/
+.DS_Store
