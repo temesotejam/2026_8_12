@@ -1,0 +1,41 @@
+name: CoreS3 peripheral models
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  peripheral-smoke:
+    name: ILI9342C + AXP2101 + AW9523B smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run CoreS3 peripheral model
+        run: python tools/run_cores3_peripheral_smoke.py | tee cores3-peripheral.log
+
+      - name: Require peripheral PASS
+        run: grep -Fq 'CORES3_PERIPHERAL_MODEL_CHECK:PASS' cores3-peripheral.log
+
+      - name: Validate generated PNG
+        run: |
+          test -s artifacts/cores3-screen.png
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('artifacts/cores3-screen.png').read_bytes()
+          assert p[:8] == b'\x89PNG\r\n\x1a\n'
+          print('PNG_CHECK:PASS bytes=%d' % len(p))
+          PY
+
+      - name: Upload virtual CoreS3 screen
+        uses: actions/upload-artifact@v4
+        with:
+          name: cores3-virtual-screen
+          path: |
+            artifacts/cores3-screen.png
+            cores3-peripheral.log
