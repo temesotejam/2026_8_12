@@ -37,6 +37,29 @@ add_library(production_link
 target_include_directories(production_link PUBLIC lib/virtual_link)
 target_link_libraries(production_link PUBLIC virtual_link boat_protocol_host)
 
+# Phase 9 imports the production controller command-ingress and replay-window
+# sources, then runs them against the same production wire codec from Phase 8.
+add_library(production_control_host
+  lib/production_control/production_control.cpp
+  lib/production_control/command_replay.cpp
+  lib/production_control/command_ingress.cpp
+)
+target_include_directories(production_control_host PUBLIC
+  lib/production_control
+  lib/boat_protocol
+)
+target_link_libraries(production_control_host PUBLIC boat_protocol_host)
+
+add_library(production_command_link
+  lib/virtual_link/ProductionCommandTelemetrySystem.cpp
+  lib/virtual_link/ProductionCommandTelemetryManualRefresh.cpp
+)
+target_include_directories(production_command_link PUBLIC lib/virtual_link)
+target_link_libraries(production_command_link PUBLIC
+  production_link
+  production_control_host
+)
+
 add_executable(cores3_sim simulator/main.cpp)
 target_link_libraries(cores3_sim PRIVATE app_logic virtual_hw)
 
@@ -45,6 +68,13 @@ target_link_libraries(dual_controller_sim PRIVATE virtual_link)
 
 add_executable(production_protocol_sim simulator/production_protocol_main.cpp)
 target_link_libraries(production_protocol_sim PRIVATE production_link)
+
+add_executable(production_command_telemetry_sim
+  simulator/production_command_telemetry_main.cpp
+)
+target_link_libraries(production_command_telemetry_sim PRIVATE
+  production_command_link
+)
 
 add_executable(app_tests tests/test_app.cpp)
 target_link_libraries(app_tests PRIVATE app_logic)
@@ -73,6 +103,9 @@ target_link_libraries(phase7_tests PRIVATE virtual_link)
 add_executable(phase8_tests tests/test_phase8.cpp)
 target_link_libraries(phase8_tests PRIVATE production_link)
 
+add_executable(phase9_tests tests/test_phase9.cpp)
+target_link_libraries(phase9_tests PRIVATE production_command_link)
+
 enable_testing()
 add_test(NAME app_logic_tests COMMAND app_tests)
 add_test(NAME virtual_hardware_tests COMMAND virtual_hw_tests)
@@ -83,3 +116,4 @@ add_test(NAME phase5_ina226_tests COMMAND phase5_tests)
 add_test(NAME phase6_vl53l5cx_tests COMMAND phase6_tests)
 add_test(NAME phase7_dual_uart_tests COMMAND phase7_tests)
 add_test(NAME phase8_production_protocol_tests COMMAND phase8_tests)
+add_test(NAME phase9_production_command_telemetry_tests COMMAND phase9_tests)
