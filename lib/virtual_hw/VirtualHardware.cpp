@@ -10,7 +10,8 @@ void VirtualHardware::apply(std::uint32_t now_ms, const VirtualHwInput& input) {
   uart_frame_ok_ = true;
 
   if (!input_.uart_connected && was_uart_connected_) {
-    stats_.uart_frames_dropped += static_cast<std::uint32_t>(pending_gnss_.size());
+    stats_.uart_frames_dropped +=
+        static_cast<std::uint32_t>(pending_gnss_.size());
     pending_gnss_.clear();
   }
   was_uart_connected_ = input_.uart_connected;
@@ -69,9 +70,40 @@ SensorSample VirtualHardware::sample(std::uint32_t now_ms) {
                input_.i2c_latency_ms <= kI2cTimeoutMs;
   if (!out.i2c_ok && !out.i2c_nack) ++stats_.i2c_timeouts;
 
-  out.imu_ok = out.i2c_ok && input_.imu_online;
-  if (out.imu_ok) last_pitch_deg_ = input_.pitch_deg;
-  out.pitch_deg = last_pitch_deg_;
+  if (input_.bno_model_enabled) {
+    Bno08xInput bno_input;
+    bno_input.enabled = true;
+    bno_input.powered = input_.imu_online;
+    bno_input.force_reset = input_.bno_force_reset;
+    bno_input.reports_enabled = input_.bno_reports_enabled;
+    bno_input.stall_reports = input_.bno_stall_reports;
+    bno_input.report_interval_ms = input_.bno_report_interval_ms;
+    bno_input.reinit_delay_ms = input_.bno_reinit_delay_ms;
+    bno_input.auto_reinit = input_.bno_auto_reinit;
+    bno_input.pitch_deg = input_.pitch_deg;
+
+    const auto bno = bno_.update(now_ms, bno_input, out.i2c_ok);
+    out.bno_model_active = true;
+    out.bno_initialized = bno.initialized;
+    out.bno_report_fresh = bno.report_fresh;
+    out.bno_reinitializing = bno.reinitializing;
+    out.bno_report_age_ms = bno.report_age_ms;
+    out.imu_ok = out.i2c_ok &&
+                 input_.imu_online &&
+                 bno.initialized &&
+                 bno.report_fresh;
+    out.pitch_deg = bno.pitch_deg;
+  } else {
+    // Phase 1-3 compatibility path.
+    out.imu_ok = out.i2c_ok && input_.imu_online;
+    if (out.imu_ok) last_pitch_deg_ = input_.pitch_deg;
+    out.pitch_deg = last_pitch_deg_;
+
+    Bno08xInput disabled_bno;
+    disabled_bno.enabled = false;
+    disabled_bno.pitch_deg = out.pitch_deg;
+    (void)bno_.update(now_ms, disabled_bno, out.i2c_ok);
+  }
 
   deliverPending(now_ms);
   out.uart_ok = input_.uart_connected;
@@ -97,7 +129,9 @@ SensorSample VirtualHardware::sample(std::uint32_t now_ms) {
   ++stats_.sd_write_attempts;
   const bool sd_timeout = input_.sd_connected &&
                           input_.sd_latency_ms > kSdTimeoutMs;
-  out.sd_ok = input_.sd_connected && !input_.sd_fail_write && !sd_timeout;
+  out.sd_ok = input_.sd_connected &&
+              !input_.sd_fail_write &&
+              !sd_timeout;
   if (!out.sd_ok) ++stats_.sd_write_failures;
   if (sd_timeout) ++stats_.sd_write_timeouts;
 
