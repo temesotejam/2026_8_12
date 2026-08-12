@@ -83,11 +83,11 @@ static void clearOneShots(ProductionCommandTelemetryInput& input) {
   input.corrupt_canonical_crc = false;
 }
 
-static const char* safetyName(production_control::AuthoritativeSafety s) {
+static const char* displaySafetyName(production_control::AuthoritativeSafety s) {
   return production_control::safetyName(s);
 }
 
-static const char* modeName(production_control::ControlMode m) {
+static const char* displayModeName(production_control::ControlMode m) {
   return production_control::modeName(m);
 }
 
@@ -146,8 +146,8 @@ static void writeSvg(const fs::path& path,
       << uart.control_to_comm.corruptions_injected << '/' << uart.control_to_comm.framing_errors << "</text>";
 
   out << "<text x=\"480\" y=\"80\" font-size=\"18\">CONTROL XIAO</text>";
-  out << "<text x=\"480\" y=\"106\" font-size=\"13\">safety=" << safetyName(s.safety)
-      << " mode=" << modeName(s.control_mode) << " run=" << (s.running?"YES":"NO") << "</text>";
+  out << "<text x=\"480\" y=\"106\" font-size=\"13\">safety=" << displaySafetyName(s.safety)
+      << " mode=" << displayModeName(s.control_mode) << " run=" << (s.running?"YES":"NO") << "</text>";
   out << "<text x=\"480\" y=\"130\" font-size=\"13\">hostHB=" << (s.host_heartbeat_fresh?"OK":"BAD")
       << " age=" << ageText(s.host_heartbeat_age_ms) << " failsafe=" << (s.failsafe_stop?"YES":"NO") << "</text>";
   out << "<text x=\"480\" y=\"158\" font-size=\"13\">CommandIngress</text>";
@@ -160,14 +160,14 @@ static void writeSvg(const fs::path& path,
   out << "<text x=\"480\" y=\"258\" font-size=\"12\">GNSS RX=" << s.gnss_nav_rx
       << " payloadCRCerr=" << s.gnss_payload_crc_errors << "</text>";
   out << "<text x=\"480\" y=\"282\" font-size=\"12\">manual mask=" << static_cast<unsigned>(s.manual_output_mask)
-      << " telemetry bursts=" << stats.telemetry_bursts_sent << "</text>";
+      << " refresh=" << stats.manual_refreshes_sent << " telemetry=" << stats.telemetry_bursts_sent << "</text>";
   out << "<text x=\"480\" y=\"330\" font-size=\"11\">CONTROL decoder CRC/COBS/LEN=" << dec.control_crc_errors << '/'
       << dec.control_cobs_errors << '/' << dec.control_length_errors << "</text>";
   out << "<text x=\"480\" y=\"354\" font-size=\"11\">M2C drop/corrupt/frame=" << uart.comm_to_control.frames_dropped << '/'
       << uart.comm_to_control.corruptions_injected << '/' << uart.comm_to_control.framing_errors << "</text>";
 
   out << "<text x=\"20\" y=\"430\" font-size=\"12\">t=" << t_ms
-      << "ms retry=100ms timeout=1200ms replayWindow=64 telemetry=100ms</text>";
+      << "ms retry=100ms timeout=1200ms replayWindow=64 telemetry=100ms manualRefresh=200ms</text>";
   out << "</g></svg>";
 }
 
@@ -181,7 +181,7 @@ int main(int argc, char** argv) {
   ProductionCommandTelemetrySystem system;
   ProductionCommandTelemetryInput current = rows.front().input;
   std::uint32_t last_t = rows.front().t_ms;
-  auto status = system.step(last_t, current);
+  auto status = system.stepWithManualRefresh(last_t, current);
   clearOneShots(current);
 
   std::ofstream trace(outdir / "trace.csv");
@@ -189,14 +189,16 @@ int main(int argc, char** argv) {
            "pending_state,pending_type,pending_request,pending_seq,pending_attempts,last_ack_disp,last_ack_reason,"
            "ingress_new,ingress_applied,ingress_rejected,ingress_duplicate,ingress_conflict,ingress_stale,ingress_malformed,"
            "wp_revision,wp_count,out_rx,snapshot_rx,ina_rx,vesc_rx,act_rx,health_rx,gnss_rx,duplicate_ack_rx,"
-           "retry_count,accepted_count,rejected_count,timeout_count,telemetry_bursts,"
+           "retry_count,accepted_count,rejected_count,timeout_count,manual_refreshes,telemetry_bursts,"
            "comm_dec_crc,comm_dec_cobs,comm_dec_len,control_dec_crc,control_dec_cobs,control_dec_len\n";
 
   for (std::size_t i = 0; i < rows.size(); ++i) {
     if (i > 0) {
-      for (std::uint32_t t = last_t + 10; t < rows[i].t_ms; t += 10) system.step(t, current);
+      for (std::uint32_t t = last_t + 10; t < rows[i].t_ms; t += 10) {
+        system.stepWithManualRefresh(t, current);
+      }
       current = rows[i].input;
-      status = system.step(rows[i].t_ms, current);
+      status = system.stepWithManualRefresh(rows[i].t_ms, current);
       last_t = rows[i].t_ms;
       clearOneShots(current);
     }
@@ -219,13 +221,14 @@ int main(int argc, char** argv) {
           << status.ina_status_rx << ',' << status.vesc_telemetry_rx << ',' << status.actuator_state_rx << ','
           << status.system_health_rx << ',' << status.gnss_nav_rx << ',' << status.duplicate_acks_rx << ','
           << stats.pending_retries << ',' << stats.pending_accepted << ',' << stats.pending_rejected << ','
-          << stats.pending_timeouts << ',' << stats.telemetry_bursts_sent << ',' << dec.comm_crc_errors << ','
-          << dec.comm_cobs_errors << ',' << dec.comm_length_errors << ',' << dec.control_crc_errors << ','
-          << dec.control_cobs_errors << ',' << dec.control_length_errors << '\n';
-    std::cout << rows[i].t_ms << "ms safety=" << safetyName(status.safety)
+          << stats.pending_timeouts << ',' << stats.manual_refreshes_sent << ',' << stats.telemetry_bursts_sent << ','
+          << dec.comm_crc_errors << ',' << dec.comm_cobs_errors << ',' << dec.comm_length_errors << ','
+          << dec.control_crc_errors << ',' << dec.control_cobs_errors << ',' << dec.control_length_errors << '\n';
+    std::cout << rows[i].t_ms << "ms safety=" << displaySafetyName(status.safety)
               << " pending=" << pendingName(status.pending_state)
               << " attempts=" << static_cast<unsigned>(status.pending_attempts)
               << " dup=" << status.ingress_duplicates
+              << " refresh=" << stats.manual_refreshes_sent
               << " telemetry=" << status.control_snapshot_rx << '\n';
   }
   return 0;
