@@ -5,7 +5,7 @@
 namespace cores3sim {
 
 void ProductionCommandTelemetrySystem::sendManualRefresh(std::uint32_t now_ms) {
-  if (!manual_refresh_enabled_ || pending_.active ||
+  if (!manual_refresh_enabled_ || !manual_refresh_mask_ || pending_.active ||
       production_control::modeUsesWaypoint(controller_.mode()) ||
       now_ms - last_manual_refresh_ms_ < kManualRefreshMs) {
     return;
@@ -51,11 +51,16 @@ ProductionCommandTelemetrySystem::stepWithManualRefresh(
       input.action == ProductionAction::Disarm ||
       input.action == ProductionAction::Estop) {
     manual_refresh_enabled_ = false;
+    // Prevent the persistent "last pending command was accepted" status from
+    // re-enabling the old manual stream on a later tick. A new SetManual action
+    // repopulates the mask and can enable a fresh stream after its ACK arrives.
+    manual_refresh_mask_ = 0;
   }
 
   ProductionCommandTelemetryStatus result = step(now_ms, input);
 
-  if (status_.pending_type == static_cast<std::uint8_t>(boat::Type::ManualCommand) &&
+  if (manual_refresh_mask_ &&
+      status_.pending_type == static_cast<std::uint8_t>(boat::Type::ManualCommand) &&
       status_.pending_state == PendingCommandState::Accepted &&
       !status_.pending_active) {
     if (!manual_refresh_enabled_) {
@@ -70,6 +75,7 @@ ProductionCommandTelemetrySystem::stepWithManualRefresh(
       status_.safety == production_control::AuthoritativeSafety::Fault ||
       status_.safety == production_control::AuthoritativeSafety::EStop) {
     manual_refresh_enabled_ = false;
+    manual_refresh_mask_ = 0;
   }
 
   sendManualRefresh(now_ms);
