@@ -22,6 +22,13 @@ struct SensorSample {
   bool uart_ok{true};
   bool gnss_ok{true};
   std::uint32_t gnss_age_ms{0};
+
+  // Phase 3 transport/logging/timing health. Appended for source compatibility.
+  bool i2c_nack{false};
+  bool uart_frame_ok{true};
+  bool timing_ok{true};
+  std::int32_t loop_jitter_ms{0};
+  bool sd_ok{true};
 };
 
 struct TouchSample {
@@ -41,6 +48,11 @@ struct UiFrame {
   bool uart_ok{true};
   bool gnss_ok{true};
   std::uint32_t gnss_age_ms{0};
+  bool i2c_nack{false};
+  bool uart_frame_ok{true};
+  bool timing_ok{true};
+  std::int32_t loop_jitter_ms{0};
+  bool sd_ok{true};
   std::string button_label{"WAIT"};
   std::string message{"Booting"};
   std::string warning{};
