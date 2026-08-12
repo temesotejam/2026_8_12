@@ -1,0 +1,161 @@
+name: Real CoreS3 firmware with virtual board wiring
+
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'include/**'
+      - 'platformio.ini'
+      - 'sim/cores3/qemu-overlay/**'
+      - 'tools/prepare_cores3_qemu.py'
+      - 'tools/prepare_cores3_qemu_real.py'
+      - 'tools/make_flash_image.py'
+      - 'tools/ppm_to_png.py'
+      - '.github/workflows/cores3-real-qemu-wiring.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'include/**'
+      - 'platformio.ini'
+      - 'sim/cores3/qemu-overlay/**'
+      - 'tools/prepare_cores3_qemu.py'
+      - 'tools/prepare_cores3_qemu_real.py'
+      - 'tools/make_flash_image.py'
+      - 'tools/ppm_to_png.py'
+      - '.github/workflows/cores3-real-qemu-wiring.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-cores3-wiring:
+    name: M5Unified CoreS3 -> GPIO/I2C/SPI2 virtual board
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install PlatformIO Core
+        run: python -m pip install --upgrade platformio
+
+      - name: Build real CoreS3 Arduino/M5Unified firmware
+        run: pio run
+
+      - name: Assemble 16 MB CoreS3 flash image
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          build=.pio/build/m5stack-cores3
+          segments=(
+            --segment "0x0:${build}/bootloader.bin"
+            --segment "0x8000:${build}/partitions.bin"
+            --segment "0x10000:${build}/firmware.bin"
+          )
+          if [ -f "${build}/boot_app0.bin" ]; then
+            segments+=(--segment "0xe000:${build}/boot_app0.bin")
+          fi
+          python tools/make_flash_image.py \
+            --size 16MB \
+            --output artifacts/cores3-real-qemu-flash.bin \
+            "${segments[@]}"
+
+      - name: Install QEMU build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ninja-build pkg-config xz-utils \
+            libglib2.0-dev libpixman-1-dev libslirp-dev libgcrypt20-dev libfdt-dev
+
+      - name: Download pinned Espressif QEMU source
+        run: |
+          QEMU_VERSION='esp-develop-9.2.2-20260417'
+          QEMU_ARCHIVE='qemu-esp_develop_9.2.2_20260417-src.tar.xz'
+          QEMU_SHA256='66015182274b9fda7d3c7f19e8f160e6e23947217cc149c7aa97e1586dfc6198'
+          curl --fail --location --retry 3 \
+            "https://github.com/espressif/qemu/releases/download/${QEMU_VERSION}/${QEMU_ARCHIVE}" \
+            --output qemu-src.tar.xz
+          echo "${QEMU_SHA256}  qemu-src.tar.xz" | sha256sum --check --strict
+          mkdir qemu-src
+          tar -xJf qemu-src.tar.xz -C qemu-src --strip-components=1
+
+      - name: Apply real CoreS3 GPIO/I2C/SPI2 overlay
+        run: python tools/prepare_cores3_qemu_real.py qemu-src
+
+      - name: Configure patched QEMU
+        run: |
+          cd qemu-src
+          ./configure \
+            --target-list=xtensa-softmmu \
+            --disable-werror \
+            --disable-docs \
+            --disable-gtk \
+            --disable-opengl \
+            --disable-curses \
+            --disable-vnc \
+            --disable-sdl
+
+      - name: Build patched QEMU
+        run: ninja -C qemu-src/build qemu-system-xtensa
+
+      - name: Run real CoreS3 firmware against virtual board wiring
+        shell: bash
+        run: |
+          set +e
+          timeout --signal=INT 25s qemu-src/build/qemu-system-xtensa \
+            -nographic \
+            -machine esp32s3 \
+            -m 8M \
+            -drive file=artifacts/cores3-real-qemu-flash.bin,if=mtd,format=raw \
+            -serial mon:stdio \
+            > cores3-real-wiring.log 2>&1
+          status=$?
+          set -e
+          cat cores3-real-wiring.log
+          if [ "$status" -ne 0 ] && [ "$status" -ne 124 ] && [ "$status" -ne 130 ]; then
+            echo "patched QEMU exited unexpectedly with status $status"
+            exit "$status"
+          fi
+
+      - name: Require real CoreS3 I2C discovery
+        shell: bash
+        run: |
+          grep -Fq 'CORES3_QEMU_PROBE:M5_BEGIN_ENTER' cores3-real-wiring.log
+          grep -Fq 'CORES3_I2C_BITBANG:addr=0x34' cores3-real-wiring.log
+          grep -Fq 'CORES3_I2C_BITBANG:addr=0x58' cores3-real-wiring.log
+          grep -F 'CORES3_I2C_BITBANG:' cores3-real-wiring.log | head -40
+          if grep -Fq 'CORES3_I2C_HW:' cores3-real-wiring.log; then
+            echo 'CORES3_REAL_I2C_CONTROLLER_PATH:PASS'
+            grep -F 'CORES3_I2C_HW:' cores3-real-wiring.log | head -40
+          else
+            echo 'CORES3_REAL_I2C_CONTROLLER_PATH:NOT_REACHED'
+          fi
+          grep -F 'CORES3_QEMU_PROBE:DISPLAY=' cores3-real-wiring.log || true
+          echo 'CORES3_REAL_BITBANG_DISCOVERY:PASS'
+
+      - name: Convert real-firmware framebuffer when available
+        shell: bash
+        run: |
+          if [ -s cores3-screen.ppm ]; then
+            python tools/ppm_to_png.py cores3-screen.ppm artifacts/cores3-real-screen.png
+            echo 'CORES3_REAL_SCREEN_ARTIFACT:PASS'
+          else
+            echo 'CORES3_REAL_SCREEN_ARTIFACT:NOT_YET'
+          fi
+
+      - name: Upload real CoreS3 virtual-board artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cores3-real-qemu-wiring
+          path: |
+            cores3-real-wiring.log
+            cores3-screen.ppm
+            artifacts/cores3-real-screen.png
+          if-no-files-found: ignore

@@ -1,0 +1,180 @@
+name: CoreS3 virtual CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hardware-map:
+    name: CoreS3 hardware topology contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Validate CoreS3 topology
+        run: python tools/validate_cores3_topology.py | tee cores3-topology.log
+
+      - name: Require topology PASS
+        run: grep -Fq 'CORES3_TOPOLOGY_CHECK:PASS' cores3-topology.log
+
+  native-smoke:
+    name: Native shared-logic smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build native test
+        run: g++ -std=c++17 -Wall -Wextra -Werror -Iinclude test/native_smoke.cpp -o native-smoke
+
+      - name: Run native test
+        run: ./native-smoke | tee native-smoke.log
+
+      - name: Require native PASS
+        run: grep -Fq 'NATIVE_CHECK:PASS' native-smoke.log
+
+  build:
+    name: PlatformIO CoreS3 build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install PlatformIO Core
+        run: python -m pip install --upgrade platformio
+
+      - name: Build CoreS3 firmware
+        run: pio run
+
+  qemu-smoke:
+    name: ESP32-S3 QEMU behavior smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install PlatformIO Core
+        run: python -m pip install --upgrade platformio
+
+      - name: Build ESP32-S3 QEMU firmware
+        run: pio run -d qemu-pio
+
+      - name: Assemble QEMU flash image
+        run: |
+          python tools/make_flash_image.py \
+            --size 8MB \
+            --output qemu-pio/qemu_flash.bin \
+            --segment 0x0:qemu-pio/.pio/build/esp32s3-qemu/bootloader.bin \
+            --segment 0x8000:qemu-pio/.pio/build/esp32s3-qemu/partitions.bin \
+            --segment 0x10000:qemu-pio/.pio/build/esp32s3-qemu/firmware.bin
+
+      - name: Install QEMU runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0 xz-utils
+
+      - name: Download official Espressif QEMU
+        run: |
+          QEMU_VERSION='esp-develop-9.2.2-20260417'
+          QEMU_ARCHIVE='qemu-xtensa-softmmu-esp_develop_9.2.2_20260417-x86_64-linux-gnu.tar.xz'
+          QEMU_SHA256='0eecb2a34a5586c0e59110f77b9343b7b336e82fdb0e1a30e1dc1bab8a547e35'
+          curl --fail --location --retry 3 \
+            "https://github.com/espressif/qemu/releases/download/${QEMU_VERSION}/${QEMU_ARCHIVE}" \
+            --output qemu-xtensa.tar.xz
+          echo "${QEMU_SHA256}  qemu-xtensa.tar.xz" | sha256sum --check --strict
+          mkdir -p .qemu
+          tar -xJf qemu-xtensa.tar.xz -C .qemu
+          QEMU_BIN="$(find .qemu -type f -name qemu-system-xtensa -print -quit)"
+          test -n "$QEMU_BIN"
+          chmod +x "$QEMU_BIN"
+          echo "QEMU_BIN=$QEMU_BIN" >> "$GITHUB_ENV"
+          "$QEMU_BIN" --version
+
+      - name: Run firmware in official Espressif QEMU
+        run: |
+          set +e
+          timeout --signal=INT 12s "$QEMU_BIN" \
+            -nographic \
+            -machine esp32s3 \
+            -drive file=qemu-pio/qemu_flash.bin,if=mtd,format=raw \
+            -serial mon:stdio \
+            > qemu.log 2>&1
+          status=$?
+          set -e
+          cat qemu.log
+          if [ "$status" -ne 0 ] && [ "$status" -ne 124 ] && [ "$status" -ne 130 ]; then
+            echo "QEMU exited unexpectedly with status $status"
+            exit "$status"
+          fi
+          grep -Fq 'QEMU_BOOT:ESP32S3' qemu.log
+          grep -Fq 'QEMU_HEARTBEAT:1' qemu.log
+          grep -Fq 'QEMU_HEARTBEAT:2' qemu.log
+          grep -Fq 'QEMU_HEARTBEAT:3' qemu.log
+          grep -Fq 'QEMU_CHECK:PASS' qemu.log
+
+      - name: Upload QEMU serial log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: esp32s3-qemu-log
+          path: qemu.log
+          if-no-files-found: ignore
+
+  wokwi-smoke:
+    name: Wokwi behavior smoke test (optional)
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      WOKWI_CLI_TOKEN: ${{ secrets.WOKWI_CLI_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install PlatformIO Core
+        run: python -m pip install --upgrade platformio
+
+      - name: Build CoreS3 firmware
+        run: pio run
+
+      - name: Run firmware in Wokwi
+        if: ${{ env.WOKWI_CLI_TOKEN != '' }}
+        uses: wokwi/wokwi-ci-action@v1
+        with:
+          token: ${{ env.WOKWI_CLI_TOKEN }}
+          path: /
+          timeout: 10000
+          expect_text: 'SIM_CHECK:PASS'
+          fail_text: 'SIM_CHECK:FAIL'
+          serial_log_file: 'wokwi-serial.log'
+
+      - name: Explain missing Wokwi token
+        if: ${{ env.WOKWI_CLI_TOKEN == '' }}
+        run: echo "::notice::Wokwi is optional. Add WOKWI_CLI_TOKEN only if you want the comparison run."
+
+      - name: Upload Wokwi serial log
+        if: ${{ always() && env.WOKWI_CLI_TOKEN != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: wokwi-serial-log
+          path: wokwi-serial.log
+          if-no-files-found: ignore
