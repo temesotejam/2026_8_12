@@ -6,6 +6,7 @@
 #include "App.h"
 #include "VirtualBno08x.h"
 #include "VirtualIna226.h"
+#include "VirtualVl53l5cx.h"
 
 namespace cores3sim {
 
@@ -32,7 +33,6 @@ struct VirtualHwInput {
   std::uint32_t sd_latency_ms{1};
 
   // Phase 4: optional device-specific BNO08X model.
-  // When false, phase 1-3 direct IMU behavior is preserved.
   bool bno_model_enabled{false};
   bool bno_force_reset{false};
   bool bno_reports_enabled{true};
@@ -59,6 +59,21 @@ struct VirtualHwInput {
   std::uint32_t ina_averages{1};
   std::uint32_t ina_reinit_delay_ms{20};
   bool ina_auto_reinit{true};
+
+  // Phase 6: optional 8x8 VL53L5CX model.
+  bool tof_model_enabled{false};
+  bool tof_powered{true};
+  bool tof_device_ack{true};
+  bool tof_force_reset{false};
+  bool tof_ranging_enabled{true};
+  bool tof_stall_frames{false};
+  std::uint32_t tof_ranging_frequency_hz{10};
+  std::uint32_t tof_reinit_delay_ms{500};
+  bool tof_auto_reinit{true};
+  std::uint16_t tof_default_distance_mm{1000};
+  std::uint8_t tof_invalid_zone{255};
+  std::uint8_t tof_invalid_status{255};
+  std::uint16_t tof_invalid_distance_mm{0};
 };
 
 struct VirtualHwStats {
@@ -91,6 +106,7 @@ class VirtualHardware {
   const VirtualHwStats& stats() const { return stats_; }
   const Bno08xStats& bnoStats() const { return bno_.stats(); }
   const Ina226Stats& inaStats() const { return ina_.stats(); }
+  const Vl53l5cxStats& tofStats() const { return tof_.stats(); }
 
  private:
   struct PendingGnss {
@@ -105,6 +121,7 @@ class VirtualHardware {
   std::vector<PendingGnss> pending_gnss_{};
   VirtualBno08x bno_{};
   VirtualIna226 ina_{};
+  VirtualVl53l5cx tof_{};
 
   float last_pitch_deg_{0.0f};
   bool has_gnss_{false};
