@@ -50,6 +50,20 @@ static void parsePhase3Base(const std::vector<std::string>& c,
   r.touch = {std::stoi(c[17]) != 0, std::stoi(c[18]), std::stoi(c[19])};
 }
 
+static void parsePhase4Base(const std::vector<std::string>& c,
+                            ScenarioRow& r) {
+  parsePhase3Base(c, r);
+  r.hw.bno_model_enabled = std::stoi(c[20]) != 0;
+  r.hw.bno_force_reset = std::stoi(c[21]) != 0;
+  r.hw.bno_reports_enabled = std::stoi(c[22]) != 0;
+  r.hw.bno_stall_reports = std::stoi(c[23]) != 0;
+  r.hw.bno_report_interval_ms =
+      static_cast<std::uint32_t>(std::stoul(c[24]));
+  r.hw.bno_reinit_delay_ms =
+      static_cast<std::uint32_t>(std::stoul(c[25]));
+  r.hw.bno_auto_reinit = std::stoi(c[26]) != 0;
+}
+
 static std::vector<ScenarioRow> loadScenario(const fs::path& path) {
   std::ifstream f(path);
   if (!f) throw std::runtime_error("cannot open scenario: " + path.string());
@@ -76,27 +90,39 @@ static std::vector<ScenarioRow> loadScenario(const fs::path& path) {
       r.hw.battery_v = std::stof(c[2]);
       r.hw.imu_online = std::stoi(c[3]) != 0;
       r.hw.i2c_connected = std::stoi(c[4]) != 0;
-      r.hw.i2c_latency_ms = static_cast<std::uint32_t>(std::stoul(c[5]));
+      r.hw.i2c_latency_ms =
+          static_cast<std::uint32_t>(std::stoul(c[5]));
       r.hw.uart_connected = std::stoi(c[6]) != 0;
-      r.hw.uart_latency_ms = static_cast<std::uint32_t>(std::stoul(c[7]));
+      r.hw.uart_latency_ms =
+          static_cast<std::uint32_t>(std::stoul(c[7]));
       r.hw.gnss_source_valid = std::stoi(c[8]) != 0;
       r.touch = {std::stoi(c[9]) != 0, std::stoi(c[10]), std::stoi(c[11])};
     } else if (c.size() == 20) {
       parsePhase3Base(c, r);
     } else if (c.size() == 27) {
-      parsePhase3Base(c, r);
-      r.hw.bno_model_enabled = std::stoi(c[20]) != 0;
-      r.hw.bno_force_reset = std::stoi(c[21]) != 0;
-      r.hw.bno_reports_enabled = std::stoi(c[22]) != 0;
-      r.hw.bno_stall_reports = std::stoi(c[23]) != 0;
-      r.hw.bno_report_interval_ms =
-          static_cast<std::uint32_t>(std::stoul(c[24]));
-      r.hw.bno_reinit_delay_ms =
-          static_cast<std::uint32_t>(std::stoul(c[25]));
-      r.hw.bno_auto_reinit = std::stoi(c[26]) != 0;
+      parsePhase4Base(c, r);
+    } else if (c.size() == 39) {
+      parsePhase4Base(c, r);
+      r.hw.ina_model_enabled = std::stoi(c[27]) != 0;
+      r.hw.ina_powered = std::stoi(c[28]) != 0;
+      r.hw.ina_device_ack = std::stoi(c[29]) != 0;
+      r.hw.ina_force_reset = std::stoi(c[30]) != 0;
+      r.hw.ina_stall_conversions = std::stoi(c[31]) != 0;
+      r.hw.ina_calibration_programmed = std::stoi(c[32]) != 0;
+      r.hw.ina_force_math_overflow = std::stoi(c[33]) != 0;
+      r.hw.ina_bus_voltage_v = std::stof(c[34]);
+      r.hw.ina_current_a = std::stof(c[35]);
+      const auto conversion_us =
+          static_cast<std::uint32_t>(std::stoul(c[36]));
+      r.hw.ina_shunt_conversion_us = conversion_us;
+      r.hw.ina_bus_conversion_us = conversion_us;
+      r.hw.ina_averages =
+          static_cast<std::uint32_t>(std::stoul(c[37]));
+      r.hw.ina_reinit_delay_ms =
+          static_cast<std::uint32_t>(std::stoul(c[38]));
     } else {
       throw std::runtime_error(
-          "scenario row needs 7, 12, 20, or 27 columns: " + line);
+          "scenario row needs 7, 12, 20, 27, or 39 columns: " + line);
     }
 
     rows.push_back(r);
@@ -126,6 +152,18 @@ static const char* bnoState(const UiFrame& f) {
   return "RUN";
 }
 
+static const char* inaState(const UiFrame& f) {
+  if (!f.ina_model_active) return "N/A";
+  if (!f.ina_device_ok) return "OFF";
+  if (f.ina_reinitializing) return "INIT";
+  if (!f.ina_initialized) return "OFF";
+  if (!f.ina_calibration_ok) return "CAL";
+  if (!f.ina_range_ok) return "RANGE";
+  if (f.ina_math_overflow) return "OVF";
+  if (!f.ina_conversion_fresh) return "STALE";
+  return "RUN";
+}
+
 static void writeSvg(const fs::path& path, const UiFrame& f,
                      const SensorSample& s, std::uint32_t t_ms) {
   const char* state_color =
@@ -138,36 +176,40 @@ static void writeSvg(const fs::path& path, const UiFrame& f,
   o << "<rect width=\"320\" height=\"240\" fill=\"#101418\"/>";
   o << "<rect width=\"320\" height=\"36\" fill=\"" << state_color << "\"/>";
   o << "<g fill=\"white\" font-family=\"monospace\">";
-  o << "<text x=\"9\" y=\"24\" font-size=\"17\">CoreS3 DEVICE SIM</text>";
+  o << "<text x=\"9\" y=\"24\" font-size=\"16\">CoreS3 DEVICE SIM</text>";
   o << "<text x=\"309\" y=\"24\" text-anchor=\"end\" font-size=\"15\">"
     << App::stateName(f.state) << "</text>";
-  o << "<text x=\"10\" y=\"56\" font-size=\"13\">"
+  o << "<text x=\"10\" y=\"55\" font-size=\"12\">"
     << xml(f.message) << "</text>";
 
   if (!f.warning.empty()) {
-    o << "<text x=\"10\" y=\"74\" fill=\"#ffca28\" font-size=\"10\">WARN: "
+    o << "<text x=\"10\" y=\"72\" fill=\"#ffca28\" font-size=\"9\">WARN: "
       << xml(f.warning) << "</text>";
   }
 
-  o << "<text x=\"10\" y=\"95\" font-size=\"11\">I2C:"
+  o << "<text x=\"10\" y=\"91\" font-size=\"10\">I2C:"
     << health(f.i2c_ok) << " BNO:" << bnoState(f)
     << " UART:" << health(f.uart_ok) << "</text>";
-  o << "<text x=\"10\" y=\"114\" font-size=\"11\">GNSS:"
-    << health(f.gnss_ok) << " FRAME:" << health(f.uart_frame_ok)
-    << " SD:" << health(f.sd_ok) << "</text>";
-  o << "<text x=\"10\" y=\"133\" font-size=\"11\">TIME:"
+  o << "<text x=\"10\" y=\"108\" font-size=\"10\">INA:"
+    << inaState(f) << " V:" << std::fixed << std::setprecision(2)
+    << f.ina_bus_voltage_v << " I:" << std::setprecision(3)
+    << f.ina_current_a << "</text>";
+  o << "<text x=\"10\" y=\"125\" font-size=\"10\">P:"
+    << std::setprecision(2) << f.ina_power_w << "W GNSS:"
+    << health(f.gnss_ok) << " SD:" << health(f.sd_ok) << "</text>";
+  o << "<text x=\"10\" y=\"142\" font-size=\"10\">TIME:"
     << health(f.timing_ok) << " J:" << f.loop_jitter_ms << "ms Pitch:"
-    << std::fixed << std::setprecision(1) << f.pitch_deg << "deg</text>";
-  o << "<text x=\"10\" y=\"152\" font-size=\"10\">t:" << t_ms
-    << " ticks:" << f.run_ticks << " BNO-age:";
+    << std::setprecision(1) << f.pitch_deg << "deg</text>";
+  o << "<text x=\"10\" y=\"159\" font-size=\"9\">t:" << t_ms
+    << " ticks:" << f.run_ticks << " INA-age:";
 
-  if (!f.bno_model_active) {
+  if (!f.ina_model_active) {
     o << "n/a";
-  } else if (s.bno_report_age_ms ==
+  } else if (s.ina_measurement_age_ms ==
              std::numeric_limits<std::uint32_t>::max()) {
     o << "never";
   } else {
-    o << s.bno_report_age_ms << "ms";
+    o << s.ina_measurement_age_ms << "ms";
   }
   o << "</text>";
 
@@ -190,11 +232,19 @@ int main(int argc, char** argv) {
   trace << "t_ms,state,pitch_deg,i2c_ok,i2c_nack,imu_ok,"
            "uart_ok,uart_frame_ok,gnss_ok,gnss_age_ms,timing_ok,jitter_ms,"
            "sd_ok,bno_active,bno_initialized,bno_reinitializing,"
-           "bno_report_fresh,bno_report_age_ms,run_ticks,warning,"
+           "bno_report_fresh,bno_report_age_ms,"
+           "ina_active,ina_device_ok,ina_initialized,ina_reinitializing,"
+           "ina_fresh,ina_calibration_ok,ina_range_ok,ina_math_overflow,"
+           "ina_age_ms,ina_bus_v,ina_current_a,ina_power_w,ina_shunt_v,"
+           "run_ticks,warning,"
            "i2c_timeouts,i2c_nacks,uart_dropped,uart_corrupt,uart_crc_errors,"
            "uart_framing_errors,jitter_events,max_jitter_ms,sd_failures,"
            "sd_timeouts,bno_resets,bno_reinit_attempts,bno_reinit_successes,"
-           "bno_reports,bno_stale_events\n";
+           "bno_reports,bno_stale_events,"
+           "ina_resets,ina_reinit_attempts,ina_reinit_successes,"
+           "ina_conversions,ina_stale_events,ina_device_nacks,"
+           "ina_config_errors,ina_range_errors,ina_math_overflows,"
+           "ina_uncalibrated_conversions\n";
 
   for (std::size_t i = 0; i < rows.size(); ++i) {
     const auto& r = rows[i];
@@ -209,6 +259,7 @@ int main(int argc, char** argv) {
 
     const auto& st = hw.stats();
     const auto& bs = hw.bnoStats();
+    const auto& is = hw.inaStats();
     trace << r.t_ms << ',' << App::stateName(frame.state) << ','
           << sensor.pitch_deg << ',' << sensor.i2c_ok << ','
           << sensor.i2c_nack << ',' << sensor.imu_ok << ','
@@ -218,6 +269,13 @@ int main(int argc, char** argv) {
           << sensor.sd_ok << ',' << sensor.bno_model_active << ','
           << sensor.bno_initialized << ',' << sensor.bno_reinitializing << ','
           << sensor.bno_report_fresh << ',' << sensor.bno_report_age_ms << ','
+          << sensor.ina_model_active << ',' << sensor.ina_device_ok << ','
+          << sensor.ina_initialized << ',' << sensor.ina_reinitializing << ','
+          << sensor.ina_conversion_fresh << ',' << sensor.ina_calibration_ok
+          << ',' << sensor.ina_range_ok << ',' << sensor.ina_math_overflow
+          << ',' << sensor.ina_measurement_age_ms << ','
+          << sensor.ina_bus_voltage_v << ',' << sensor.ina_current_a << ','
+          << sensor.ina_power_w << ',' << sensor.ina_shunt_voltage_v << ','
           << frame.run_ticks << ",\"" << frame.warning << "\","
           << st.i2c_timeouts << ',' << st.i2c_nacks << ','
           << st.uart_frames_dropped << ',' << st.uart_corrupt_bytes << ','
@@ -226,11 +284,17 @@ int main(int argc, char** argv) {
           << st.sd_write_failures << ',' << st.sd_write_timeouts << ','
           << bs.resets << ',' << bs.reinit_attempts << ','
           << bs.reinit_successes << ',' << bs.reports_delivered << ','
-          << bs.stale_events << '\n';
+          << bs.stale_events << ',' << is.resets << ','
+          << is.reinit_attempts << ',' << is.reinit_successes << ','
+          << is.conversions_completed << ',' << is.stale_events << ','
+          << is.device_nacks << ',' << is.config_errors << ','
+          << is.range_errors << ',' << is.math_overflows << ','
+          << is.calibration_missing_conversions << '\n';
 
     std::cout << r.t_ms << "ms " << App::stateName(frame.state)
               << " I2C=" << health(sensor.i2c_ok)
               << " BNO=" << bnoState(frame)
+              << " INA=" << inaState(frame)
               << " UART=" << health(sensor.uart_ok)
               << " SD=" << health(sensor.sd_ok) << '\n';
   }

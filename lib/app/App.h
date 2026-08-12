@@ -36,6 +36,21 @@ struct SensorSample {
   bool bno_report_fresh{true};
   bool bno_reinitializing{false};
   std::uint32_t bno_report_age_ms{0};
+
+  // Phase 5 INA226 model health and converted output registers.
+  bool ina_model_active{false};
+  bool ina_device_ok{true};
+  bool ina_initialized{true};
+  bool ina_reinitializing{false};
+  bool ina_conversion_fresh{true};
+  bool ina_calibration_ok{true};
+  bool ina_range_ok{true};
+  bool ina_math_overflow{false};
+  std::uint32_t ina_measurement_age_ms{0};
+  float ina_bus_voltage_v{0.0f};
+  float ina_current_a{0.0f};
+  float ina_power_w{0.0f};
+  float ina_shunt_voltage_v{0.0f};
 };
 
 struct TouchSample {
@@ -65,6 +80,19 @@ struct UiFrame {
   bool bno_report_fresh{true};
   bool bno_reinitializing{false};
   std::uint32_t bno_report_age_ms{0};
+  bool ina_model_active{false};
+  bool ina_device_ok{true};
+  bool ina_initialized{true};
+  bool ina_reinitializing{false};
+  bool ina_conversion_fresh{true};
+  bool ina_calibration_ok{true};
+  bool ina_range_ok{true};
+  bool ina_math_overflow{false};
+  std::uint32_t ina_measurement_age_ms{0};
+  float ina_bus_voltage_v{0.0f};
+  float ina_current_a{0.0f};
+  float ina_power_w{0.0f};
+  float ina_shunt_voltage_v{0.0f};
   std::string button_label{"WAIT"};
   std::string message{"Booting"};
   std::string warning{};

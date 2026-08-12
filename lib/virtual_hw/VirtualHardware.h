@@ -5,6 +5,7 @@
 
 #include "App.h"
 #include "VirtualBno08x.h"
+#include "VirtualIna226.h"
 
 namespace cores3sim {
 
@@ -39,6 +40,25 @@ struct VirtualHwInput {
   std::uint32_t bno_report_interval_ms{20};
   std::uint32_t bno_reinit_delay_ms{300};
   bool bno_auto_reinit{true};
+
+  // Phase 5: optional device-specific INA226 model.
+  bool ina_model_enabled{false};
+  bool ina_powered{true};
+  bool ina_device_ack{true};
+  bool ina_force_reset{false};
+  bool ina_conversion_enabled{true};
+  bool ina_stall_conversions{false};
+  bool ina_calibration_programmed{true};
+  bool ina_force_math_overflow{false};
+  float ina_bus_voltage_v{12.0f};
+  float ina_current_a{0.0f};
+  float ina_shunt_ohm{0.002f};
+  float ina_current_lsb_a{0.00125f};
+  std::uint32_t ina_shunt_conversion_us{1100};
+  std::uint32_t ina_bus_conversion_us{1100};
+  std::uint32_t ina_averages{1};
+  std::uint32_t ina_reinit_delay_ms{20};
+  bool ina_auto_reinit{true};
 };
 
 struct VirtualHwStats {
@@ -70,6 +90,7 @@ class VirtualHardware {
 
   const VirtualHwStats& stats() const { return stats_; }
   const Bno08xStats& bnoStats() const { return bno_.stats(); }
+  const Ina226Stats& inaStats() const { return ina_.stats(); }
 
  private:
   struct PendingGnss {
@@ -83,6 +104,7 @@ class VirtualHardware {
   VirtualHwStats stats_{};
   std::vector<PendingGnss> pending_gnss_{};
   VirtualBno08x bno_{};
+  VirtualIna226 ina_{};
 
   float last_pitch_deg_{0.0f};
   bool has_gnss_{false};

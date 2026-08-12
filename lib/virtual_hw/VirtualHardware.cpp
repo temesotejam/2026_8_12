@@ -105,6 +105,40 @@ SensorSample VirtualHardware::sample(std::uint32_t now_ms) {
     (void)bno_.update(now_ms, disabled_bno, out.i2c_ok);
   }
 
+  Ina226Input ina_input;
+  ina_input.enabled = input_.ina_model_enabled;
+  ina_input.powered = input_.ina_powered;
+  ina_input.device_ack = input_.ina_device_ack;
+  ina_input.force_reset = input_.ina_force_reset;
+  ina_input.conversion_enabled = input_.ina_conversion_enabled;
+  ina_input.stall_conversions = input_.ina_stall_conversions;
+  ina_input.calibration_programmed = input_.ina_calibration_programmed;
+  ina_input.force_math_overflow = input_.ina_force_math_overflow;
+  ina_input.bus_voltage_v = input_.ina_bus_voltage_v;
+  ina_input.current_a = input_.ina_current_a;
+  ina_input.shunt_ohm = input_.ina_shunt_ohm;
+  ina_input.current_lsb_a = input_.ina_current_lsb_a;
+  ina_input.shunt_conversion_us = input_.ina_shunt_conversion_us;
+  ina_input.bus_conversion_us = input_.ina_bus_conversion_us;
+  ina_input.averages = input_.ina_averages;
+  ina_input.reinit_delay_ms = input_.ina_reinit_delay_ms;
+  ina_input.auto_reinit = input_.ina_auto_reinit;
+
+  const auto ina = ina_.update(now_ms, ina_input, out.i2c_ok);
+  out.ina_model_active = ina.active;
+  out.ina_device_ok = ina.device_ok;
+  out.ina_initialized = ina.initialized;
+  out.ina_reinitializing = ina.reinitializing;
+  out.ina_conversion_fresh = ina.conversion_fresh;
+  out.ina_calibration_ok = ina.calibration_ok;
+  out.ina_range_ok = ina.range_ok;
+  out.ina_math_overflow = ina.math_overflow;
+  out.ina_measurement_age_ms = ina.measurement_age_ms;
+  out.ina_bus_voltage_v = ina.bus_voltage_v;
+  out.ina_current_a = ina.current_a;
+  out.ina_power_w = ina.power_w;
+  out.ina_shunt_voltage_v = ina.shunt_voltage_v;
+
   deliverPending(now_ms);
   out.uart_ok = input_.uart_connected;
   out.uart_frame_ok = uart_frame_ok_;

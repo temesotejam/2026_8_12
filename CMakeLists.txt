@@ -11,6 +11,7 @@ target_include_directories(app_logic PUBLIC lib/app)
 add_library(virtual_hw
   lib/virtual_hw/VirtualHardware.cpp
   lib/virtual_hw/VirtualBno08x.cpp
+  lib/virtual_hw/VirtualIna226.cpp
 )
 target_include_directories(virtual_hw PUBLIC lib/virtual_hw)
 target_link_libraries(virtual_hw PUBLIC app_logic)
@@ -33,9 +34,13 @@ target_link_libraries(phase3_tests PRIVATE app_logic virtual_hw)
 add_executable(phase4_tests tests/test_phase4.cpp)
 target_link_libraries(phase4_tests PRIVATE app_logic virtual_hw)
 
+add_executable(phase5_tests tests/test_phase5.cpp)
+target_link_libraries(phase5_tests PRIVATE app_logic virtual_hw)
+
 enable_testing()
 add_test(NAME app_logic_tests COMMAND app_tests)
 add_test(NAME virtual_hardware_tests COMMAND virtual_hw_tests)
 add_test(NAME integration_tests COMMAND integration_tests)
 add_test(NAME phase3_fault_tests COMMAND phase3_tests)
 add_test(NAME phase4_bno08x_tests COMMAND phase4_tests)
+add_test(NAME phase5_ina226_tests COMMAND phase5_tests)

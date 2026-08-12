@@ -11,12 +11,13 @@ The same portable C++ application logic is shared by:
 
 The demo application has four states: `BOOT -> READY -> RUNNING`. Critical control-sensor failure forces `FAULT`. After the critical path has remained healthy for 500 ms, the app returns to `READY`.
 
-The virtual hardware path is now layered by transport and device:
+The virtual hardware path is layered by transport and device:
 
 ```text
 scenario
    |
    +--> virtual I2C bus --> virtual BNO08X --> SensorSample
+   |                   \-> virtual INA226 --> SensorSample
    |
    +--> virtual UART ----> GNSS stream ----> SensorSample
    |
@@ -60,19 +61,44 @@ The BNO08X model represents the host-visible behavior needed by the control appl
 
 The current default BNO08X scenario uses a 20 ms report interval. A report is considered stale after the larger of 100 ms or five configured report periods. These are simulator policy parameters rather than claims about the electrical device.
 
-### Startup behavior
+During normal boot, BNO08X initialization is treated as part of `BOOT`, not as an immediate fault. After startup, a BNO08X reset, missing/stale report stream, I2C failure, or missing device is critical and forces `FAULT`.
 
-During normal boot, BNO08X initialization is treated as part of `BOOT`, not as an immediate fault. The application waits for a fresh report before entering `READY`.
+BNO08X states shown in SVG output are `INIT`, `RUN`, `STALE`, `OFF`, and `N/A`.
 
-After the system has started, however, a BNO08X reset, missing/stale report stream, I2C failure, or missing device is critical and forces `FAULT`. Once the BNO08X is healthy again, the existing 500 ms application recovery gate still applies.
+## Phase 5: device-specific INA226 model
 
-### BNO08X states shown in SVG output
+Phase 5 adds a dedicated `VirtualIna226` on the same virtual I2C transport. The INA226 is treated as a monitoring device in the current demo policy, so its faults produce warnings and diagnostics without stopping local control. A shared I2C-bus failure can still be critical through the BNO08X/control-sensor path.
 
-- `BNO:INIT` — host reinitialization in progress,
-- `BNO:RUN` — initialized with a fresh report,
-- `BNO:STALE` — initialized but report data is too old,
-- `BNO:OFF` — no initialized device/report path,
-- `BNO:N/A` — old Phase 1-3 direct-IMU mode.
+The model follows the host-visible conversion behavior of the INA226 rather than trying to emulate its analog front end electrically:
+
+- separate shunt and bus conversion-time settings,
+- supported conversion times of 140, 204, 332, 588 us and 1.1, 2.116, 4.156, 8.244 ms,
+- averaging selections of 1, 4, 16, 64, 128, 256, 512, and 1024 samples,
+- output values update only when the configured shunt + bus conversion and averaging cycle completes,
+- register values remain at their previous completed conversion while a new averaging cycle is still in progress,
+- current and power are zero when calibration is not programmed,
+- fixed bus-voltage and shunt-voltage quantization in the simulator (1.25 mV and 2.5 uV),
+- current quantization from the configured Current_LSB and power quantization at 25 times Current_LSB,
+- bus-voltage range checking from 0 to 36 V,
+- shunt-voltage range checking around +/-81.92 mV,
+- device-specific ACK/NACK independent of other devices on the same virtual I2C bus,
+- power loss, reset, host reinitialization, and automatic retry after the device returns,
+- conversion-stream stall and stale-data detection,
+- calibration-missing, range-error, and injected math-overflow diagnostics,
+- counters for resets, initialization attempts/successes, completed conversions, stale events, device NACKs, configuration/range errors, math overflow, and uncalibrated conversions.
+
+The Phase-5 example uses 588 us shunt conversion + 588 us bus conversion with 16-sample averaging, which gives an approximately 18.8 ms complete conversion cycle.
+
+INA226 states shown in SVG output are:
+
+- `INA:INIT` — host configuration/reinitialization in progress,
+- `INA:RUN` — initialized with a fresh completed conversion,
+- `INA:STALE` — initialized but no recent completed conversion,
+- `INA:OFF` — device unavailable/uninitialized,
+- `INA:CAL` — calibration is not programmed,
+- `INA:RANGE` — simulated input is outside the modeled input range,
+- `INA:OVF` — math-overflow diagnostic is asserted,
+- `INA:N/A` — INA226 model is disabled for an older scenario.
 
 ## Run on a PC
 
@@ -85,9 +111,10 @@ ctest --test-dir build --output-on-failure
 ./build/cores3_sim scenarios/bus_faults.csv artifacts/bus_faults
 ./build/cores3_sim scenarios/transport_faults.csv artifacts/transport_faults
 ./build/cores3_sim scenarios/bno08x_faults.csv artifacts/bno08x_faults
+./build/cores3_sim scenarios/ina226_faults.csv artifacts/ina226_faults
 ```
 
-Every simulation writes 320x240 SVG screen frames and a `trace.csv`. The Phase-4 trace adds BNO08X initialization/report health and device-model counters.
+Every simulation writes 320x240 SVG screen frames and a `trace.csv`. Phase 5 adds INA226 initialization/conversion health, V/I/P/shunt values, measurement age, and INA226 device counters to the trace.
 
 ## Build the real CoreS3 firmware
 
@@ -129,7 +156,13 @@ Phase 4, 27 columns, appends:
 bno_model,bno_reset,bno_reports_enabled,bno_stall_reports,bno_report_interval_ms,bno_reinit_delay_ms,bno_auto_reinit
 ```
 
-See `scenarios/bno08x_faults.csv` for startup initialization, report stall, reset/recovery, and I2C-loss-during-reinitialization examples.
+Phase 5, 39 columns, appends:
+
+```text
+ina_model,ina_powered,ina_device_ack,ina_reset,ina_stall,ina_calibration,ina_math_overflow,ina_bus_voltage_v,ina_current_a,ina_conversion_us,ina_averages,ina_reinit_delay_ms
+```
+
+See `scenarios/ina226_faults.csv` for conversion timing, calibration loss/recovery, stale conversion data, INA-only NACK/reinit, range error, math overflow, reset, and recovery examples.
 
 ## GitHub Actions
 
@@ -137,8 +170,8 @@ Every push and pull request performs two independent checks:
 
 1. **Host simulation**
    - builds shared app + transport + device models,
-   - runs application, virtual-hardware, integration, Phase-3, and Phase-4 tests,
-   - executes all four scenario generations,
+   - runs application, virtual-hardware, integration, Phase-3, Phase-4, and Phase-5 tests,
+   - executes all five scenario generations,
    - uploads all SVG frames and trace CSV files.
 2. **CoreS3 firmware build**
    - installs PlatformIO,
@@ -150,14 +183,8 @@ The `cores3-sim-artifacts` artifact is the first thing to inspect when verifying
 
 This is not an electrical or instruction-level emulator. It does not reproduce pull-up resistance, bus capacitance, analog line noise, clock stretching, DMA/interrupt races, exact ESP32-S3 timing, RF behavior, brownouts, or LCD controller timing.
 
-The BNO08X model also does not attempt to reproduce every SH-2 feature. It currently models the fused attitude-report path that matters to this control demonstration: configuration/reinitialization, report timing, stale data, reset, transport availability, and recovery.
+The BNO08X model does not reproduce every SH-2 feature, and the INA226 model does not reproduce analog error, real ADC noise, thermal drift, physical shunt tolerance, or every alert-pin behavior. The models focus on the observable software contract needed for deterministic application testing.
 
 ## Next useful extensions
 
-The same device-model pattern can now be used for:
-
-- INA226 conversion timing, current/power values, overflow and I2C loss,
-- VL53L5CX frame timing, zone data, stale frames and restart behavior,
-- multiple BNO08X report streams (rotation vector, accelerometer, gyroscope),
-- scripted UART traffic between two virtual controllers,
-- an interactive browser front end on top of the deterministic simulator.
+The next device-specific step is a virtual VL53L5CX model with frame timing, multi-zone data, stale-frame handling, restart behavior, invalid/range-status zones, and I2C recovery. After that, scripted UART traffic between two virtual controllers can exercise the full two-controller architecture.
