@@ -28,10 +28,18 @@ void setup() {
   delay(200);
   probeStage("ARDUINO_SERIAL_READY");
 
+  // M5GFX only enters the ESP32-S3/CoreS3 autodetection path for the expected
+  // ESP32-S3 package value. Expose it over UART0 so the virtual-board CI can
+  // distinguish an eFuse/package-identification problem from an I2C problem.
+  Serial0.printf("CORES3_QEMU_PROBE:PKG_VER=%lu\n",
+                 static_cast<unsigned long>(m5gfx::get_pkg_ver()));
+
   auto cfg = M5.config();
   probeStage("M5_BEGIN_ENTER");
   M5.begin(cfg);
   probeStage("M5_BEGIN_EXIT");
+  Serial0.printf("CORES3_QEMU_PROBE:BOARD=%u\n",
+                 static_cast<unsigned>(M5.getBoard()));
 
   probeStage("DISPLAY_DRAW_ENTER");
   M5.Display.setRotation(1);
