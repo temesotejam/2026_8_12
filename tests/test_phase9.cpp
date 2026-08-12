@@ -27,7 +27,7 @@ void run(ProductionCommandTelemetrySystem& system,
          ProductionCommandTelemetryInput& input,
          std::uint32_t from, std::uint32_t to) {
   for (std::uint32_t t = from; t <= to; t += 10) {
-    system.step(t, input);
+    system.stepWithManualRefresh(t, input);
     clearOneShot(input);
   }
 }
@@ -51,7 +51,7 @@ int main() {
     ProductionCommandTelemetrySystem system;
     ProductionCommandTelemetryInput input;
     run(system, input, 0, 250);
-    auto status = system.step(250, input);
+    auto status = system.stepWithManualRefresh(250, input);
     require(status.comm_link_fresh && status.host_heartbeat_fresh,
             "production bidirectional link must become fresh");
     require(status.control_output_rx >= 1 && status.control_snapshot_rx >= 1 &&
@@ -68,14 +68,14 @@ int main() {
     // side must retry after 100 ms with the same inner request/command IDs.
     input.action = ProductionAction::SetMode;
     input.mode = boat::ControlAutoWaypoint;
-    system.step(300, input);
+    system.stepWithManualRefresh(300, input);
     clearOneShot(input);
 
     input.control_to_comm_fault = InjectedUartFault::Drop;
-    system.step(310, input);
+    system.stepWithManualRefresh(310, input);
     clearOneShot(input);
     run(system, input, 320, 440);
-    status = system.step(450, input);
+    status = system.stepWithManualRefresh(450, input);
     require(status.pending_state == PendingCommandState::Accepted &&
                 !status.pending_active,
             "dropped mode ACK must recover through pending retry");
@@ -94,13 +94,13 @@ int main() {
     input.action = ProductionAction::SetWaypoint;
     input.waypoint_latitude_deg = 36.40100;
     input.waypoint_longitude_deg = 136.60050;
-    system.step(500, input);
+    system.stepWithManualRefresh(500, input);
     clearOneShot(input);
     input.control_to_comm_fault = InjectedUartFault::Drop;
-    system.step(510, input);
+    system.stepWithManualRefresh(510, input);
     clearOneShot(input);
     run(system, input, 520, 650);
-    status = system.step(660, input);
+    status = system.stepWithManualRefresh(660, input);
     require(status.pending_state == PendingCommandState::Accepted &&
                 status.waypoint_count == 1 && status.waypoint_revision == 1,
             "waypoint retry must finish and preserve accepted waypoint");
@@ -113,18 +113,18 @@ int main() {
     // The production preflight can now ARM/START because heartbeat, GNSS and
     // waypoint state are all valid and AutoWaypoint does not require manual refresh.
     input.action = ProductionAction::Arm;
-    system.step(700, input);
+    system.stepWithManualRefresh(700, input);
     clearOneShot(input);
     run(system, input, 710, 760);
-    status = system.step(760, input);
+    status = system.stepWithManualRefresh(760, input);
     require(status.safety == production_control::AuthoritativeSafety::ArmedIdle,
             "real ARM CommandPayload must pass production-style preflight");
 
     input.action = ProductionAction::Start;
-    system.step(800, input);
+    system.stepWithManualRefresh(800, input);
     clearOneShot(input);
     run(system, input, 810, 1450);
-    status = system.step(1450, input);
+    status = system.stepWithManualRefresh(1450, input);
     require(status.safety == production_control::AuthoritativeSafety::Running &&
                 status.running && !status.failsafe_stop,
             "configured AutoWaypoint system must remain RUNNING");
@@ -137,16 +137,73 @@ int main() {
             "SystemHealth must expose production mode and RUNNING safety");
 
     input.action = ProductionAction::Stop;
-    system.step(1500, input);
+    system.stepWithManualRefresh(1500, input);
     clearOneShot(input);
     run(system, input, 1510, 1580);
-    status = system.step(1580, input);
+    status = system.stepWithManualRefresh(1580, input);
     require(status.safety == production_control::AuthoritativeSafety::Disarmed &&
                 !status.running &&
                 status.stop_reason == production_control::StopReason::Stop,
             "production STOP must return the configured system to DISARMED");
     require(status.safety_command_acks_rx >= 3,
             "ARM START STOP must all generate CommandAck frames");
+  }
+
+  {
+    // Non-waypoint production operations keep ManualCommand fresh with new
+    // request/sequence IDs every 200 ms. This is distinct from PendingCommand
+    // retry, which deliberately reuses the same inner IDs after an ACK loss.
+    ProductionCommandTelemetrySystem system;
+    ProductionCommandTelemetryInput input;
+    run(system, input, 0, 250);
+    input.action = ProductionAction::SetManual;
+    input.manual_mask = boat::ManualAll;
+    input.manual_left = 0.25f;
+    input.manual_right = -0.15f;
+    input.manual_rear = 0.05f;
+    input.manual_propulsion = 0.30f;
+    system.stepWithManualRefresh(300, input);
+    clearOneShot(input);
+    run(system, input, 310, 380);
+    auto status = system.stepWithManualRefresh(380, input);
+    require(status.pending_state == PendingCommandState::Accepted &&
+                status.manual_output_mask == boat::ManualAll,
+            "initial production ManualCommand must be accepted");
+
+    input.action = ProductionAction::Arm;
+    system.stepWithManualRefresh(400, input);
+    clearOneShot(input);
+    run(system, input, 410, 480);
+    status = system.stepWithManualRefresh(480, input);
+    require(status.safety == production_control::AuthoritativeSafety::ArmedIdle,
+            "manual operation must pass preflight while command is fresh");
+
+    input.action = ProductionAction::Start;
+    system.stepWithManualRefresh(500, input);
+    clearOneShot(input);
+    run(system, input, 510, 1600);
+    status = system.stepWithManualRefresh(1600, input);
+    require(status.running &&
+                status.safety == production_control::AuthoritativeSafety::Running,
+            "200 ms production manual refresh must prevent manual timeout");
+    require(system.stats().manual_refreshes_sent >= 5,
+            "manual refresh stream must run repeatedly");
+    require(status.ingress_applied >= 6,
+            "initial manual command plus refresh commands must be applied");
+    require(status.ingress_duplicates == 0,
+            "manual refresh uses new IDs and must not look like retry duplicates");
+
+    const auto refreshes_before_stop = system.stats().manual_refreshes_sent;
+    input.action = ProductionAction::Stop;
+    system.stepWithManualRefresh(1650, input);
+    clearOneShot(input);
+    run(system, input, 1660, 2100);
+    status = system.stepWithManualRefresh(2100, input);
+    require(!status.running &&
+                status.safety == production_control::AuthoritativeSafety::Disarmed,
+            "manual STOP must disarm");
+    require(system.stats().manual_refreshes_sent == refreshes_before_stop,
+            "manual refresh must stop after STOP");
   }
 
   {
@@ -159,10 +216,10 @@ int main() {
     run(system, input, 0, 250);
     input.action = ProductionAction::SetManual;
     input.corrupt_canonical_crc = true;
-    system.step(300, input);
+    system.stepWithManualRefresh(300, input);
     clearOneShot(input);
     run(system, input, 310, 1520);
-    const auto status = system.step(1520, input);
+    const auto status = system.stepWithManualRefresh(1520, input);
     require(status.pending_state == PendingCommandState::Timeout &&
                 !status.pending_active,
             "malformed command must eventually hit COMM command timeout");
@@ -171,6 +228,8 @@ int main() {
     require(system.stats().pending_timeouts == 1 &&
                 system.stats().pending_retries >= 1,
             "timeout/retry counters must reflect malformed pending command");
+    require(system.stats().manual_refreshes_sent == 0,
+            "rejected malformed manual command must not start refresh stream");
   }
 
   {
@@ -182,24 +241,24 @@ int main() {
     run(system, input, 0, 250);
     input.action = ProductionAction::SetMode;
     input.mode = boat::ControlAutoWaypoint;
-    system.step(300, input); clearOneShot(input);
+    system.stepWithManualRefresh(300, input); clearOneShot(input);
     run(system, input, 310, 380);
     input.action = ProductionAction::SetWaypoint;
     input.waypoint_latitude_deg = 36.40100;
-    system.step(400, input); clearOneShot(input);
+    system.stepWithManualRefresh(400, input); clearOneShot(input);
     run(system, input, 410, 480);
     input.action = ProductionAction::Arm;
-    system.step(500, input); clearOneShot(input);
+    system.stepWithManualRefresh(500, input); clearOneShot(input);
     run(system, input, 510, 580);
     input.action = ProductionAction::Start;
-    system.step(600, input); clearOneShot(input);
+    system.stepWithManualRefresh(600, input); clearOneShot(input);
     run(system, input, 610, 700);
-    auto status = system.step(700, input);
+    auto status = system.stepWithManualRefresh(700, input);
     require(status.running, "failsafe test must start RUNNING");
 
     input.control_to_comm_connected = false;
     run(system, input, 710, 2300);
-    status = system.step(2300, input);
+    status = system.stepWithManualRefresh(2300, input);
     require(!status.comm_link_fresh && status.failsafe_stop && !status.running &&
                 status.stop_reason == production_control::StopReason::Heartbeat,
             "full telemetry loss must propagate through gated heartbeat to failsafe");
