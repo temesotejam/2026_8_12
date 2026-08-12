@@ -68,6 +68,13 @@ target_link_libraries(dual_controller_sim PRIVATE virtual_link)
 add_executable(production_protocol_sim simulator/production_protocol_main.cpp)
 target_link_libraries(production_protocol_sim PRIVATE production_link)
 
+add_executable(production_command_telemetry_sim
+  simulator/production_command_telemetry_main.cpp
+)
+target_link_libraries(production_command_telemetry_sim PRIVATE
+  production_command_link
+)
+
 add_executable(app_tests tests/test_app.cpp)
 target_link_libraries(app_tests PRIVATE app_logic)
 
