@@ -32,6 +32,10 @@ jobs:
         run: ./build/dual_controller_sim scenarios/dual_uart_faults.csv artifacts/dual_uart_faults
       - name: Run healthy-link STOP propagation scenario
         run: ./build/dual_controller_sim scenarios/dual_uart_stop.csv artifacts/dual_uart_stop
+      - name: Run production boat_protocol fault scenario
+        run: ./build/production_protocol_sim scenarios/production_protocol_faults.csv artifacts/production_protocol_faults
+      - name: Run production safety command scenario
+        run: ./build/production_protocol_sim scenarios/production_protocol_safety.csv artifacts/production_protocol_safety
       - name: Upload simulated CoreS3 screen frames and traces
         uses: actions/upload-artifact@v4
         with:
