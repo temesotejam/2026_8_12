@@ -1,0 +1,151 @@
+name: CoreS3 QEMU SPI2 LCD experiment
+
+on:
+  push:
+    paths:
+      - 'sim/cores3/qemu-overlay/**'
+      - 'tools/prepare_cores3_qemu.py'
+      - 'tools/ppm_to_png.py'
+      - 'tools/make_flash_image.py'
+      - 'qemu-spi2-pio/**'
+      - '.github/workflows/qemu-spi2-experiment.yml'
+  pull_request:
+    paths:
+      - 'sim/cores3/qemu-overlay/**'
+      - 'tools/prepare_cores3_qemu.py'
+      - 'tools/ppm_to_png.py'
+      - 'tools/make_flash_image.py'
+      - 'qemu-spi2-pio/**'
+      - '.github/workflows/qemu-spi2-experiment.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  spi2-lcd:
+    name: ESP32-S3 SPI2 -> ILI9342C framebuffer
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install PlatformIO Core
+        run: python -m pip install --upgrade platformio
+
+      - name: Build SPI2 test firmware
+        run: pio run -d qemu-spi2-pio
+
+      - name: Assemble QEMU flash image
+        run: |
+          python tools/make_flash_image.py \
+            --size 8MB \
+            --output qemu-spi2-pio/qemu_flash.bin \
+            --segment 0x0:qemu-spi2-pio/.pio/build/esp32s3-qemu-spi2/bootloader.bin \
+            --segment 0x8000:qemu-spi2-pio/.pio/build/esp32s3-qemu-spi2/partitions.bin \
+            --segment 0x10000:qemu-spi2-pio/.pio/build/esp32s3-qemu-spi2/firmware.bin
+
+      - name: Install QEMU build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ninja-build pkg-config xz-utils \
+            libglib2.0-dev libpixman-1-dev libslirp-dev libgcrypt20-dev libfdt-dev
+
+      - name: Download pinned Espressif QEMU source
+        run: |
+          QEMU_VERSION='esp-develop-9.2.2-20260417'
+          QEMU_ARCHIVE='qemu-esp_develop_9.2.2_20260417-src.tar.xz'
+          QEMU_SHA256='66015182274b9fda7d3c7f19e8f160e6e23947217cc149c7aa97e1586dfc6198'
+          curl --fail --location --retry 3 \
+            "https://github.com/espressif/qemu/releases/download/${QEMU_VERSION}/${QEMU_ARCHIVE}" \
+            --output qemu-src.tar.xz
+          echo "${QEMU_SHA256}  qemu-src.tar.xz" | sha256sum --check --strict
+          mkdir qemu-src
+          tar -xJf qemu-src.tar.xz -C qemu-src --strip-components=1
+
+      - name: Apply CoreS3 SPI2/LCD overlay
+        run: python tools/prepare_cores3_qemu.py qemu-src
+
+      - name: Configure patched QEMU
+        run: |
+          cd qemu-src
+          ./configure \
+            --target-list=xtensa-softmmu \
+            --disable-werror \
+            --disable-docs \
+            --disable-gtk \
+            --disable-opengl \
+            --disable-curses \
+            --disable-vnc \
+            --disable-sdl
+
+      - name: Build patched QEMU
+        run: ninja -C qemu-src/build qemu-system-xtensa
+
+      - name: Run SPI2 LCD firmware in patched QEMU
+        run: |
+          set +e
+          timeout --signal=INT 15s qemu-src/build/qemu-system-xtensa \
+            -nographic \
+            -machine esp32s3 \
+            -drive file=qemu-spi2-pio/qemu_flash.bin,if=mtd,format=raw \
+            -serial mon:stdio \
+            > qemu-spi2.log 2>&1
+          status=$?
+          set -e
+          cat qemu-spi2.log
+          if [ "$status" -ne 0 ] && [ "$status" -ne 124 ] && [ "$status" -ne 130 ]; then
+            echo "patched QEMU exited unexpectedly with status $status"
+            exit "$status"
+          fi
+          grep -Fq 'SPI2_LCD_BOOT:ESP32S3' qemu-spi2.log
+          grep -Fq 'SPI2_LCD_CHECK:PASS' qemu-spi2.log
+          test -s cores3-screen.ppm
+
+      - name: Convert framebuffer and validate pixels
+        run: |
+          python tools/ppm_to_png.py cores3-screen.ppm cores3-spi2-screen.png
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('cores3-screen.ppm').read_bytes()
+          assert p.startswith(b'P6\n320 240\n255\n')
+          header = b'P6\n320 240\n255\n'
+          rgb = p[len(header):]
+          assert len(rgb) == 320 * 240 * 3
+
+          def pixel(x, y):
+              i = (y * 320 + x) * 3
+              return tuple(rgb[i:i+3])
+
+          checks = {
+              (0, 0): (8, 12, 20),
+              (20, 20): (0, 180, 100),
+              (40, 100): (230, 65, 55),
+              (200, 100): (45, 110, 240),
+              (100, 220): (245, 200, 35),
+          }
+          for pt, expected in checks.items():
+              actual = pixel(*pt)
+              assert all(abs(a-e) <= 8 for a, e in zip(actual, expected)), (pt, actual, expected)
+
+          print('SPI2_FRAMEBUFFER_CHECK:PASS')
+          PY
+
+      - name: Upload SPI2 virtual screen
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cores3-qemu-spi2-screen
+          path: |
+            cores3-spi2-screen.png
+            cores3-screen.ppm
+            qemu-spi2.log
+          if-no-files-found: ignore
