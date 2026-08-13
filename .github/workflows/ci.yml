@@ -54,6 +54,31 @@ jobs:
         run: ./build/boatlog_replay_cli artifacts/phase10_fixture/observed_perturbed.bin artifacts/phase10_fixture/reference.bin artifacts/phase10_mismatch --allow-fail
       - name: Assert perturbed BOATLOG1 is detected as mismatch
         run: grep -Eq '"pass"[[:space:]]*:[[:space:]]*false' artifacts/phase10_mismatch/summary.json
+      - name: Generate deterministic BOATLOG2 replay fixtures
+        run: ./build/boatlog2_fixture artifacts/phase11_fixture
+      - name: Replay complete BOATLOG2 event stream
+        run: ./build/boatlog2_replay_cli artifacts/phase11_fixture/deterministic.bin artifacts/phase11_exact
+      - name: Replay BOATLOG2 with power-loss partial tail
+        run: |
+          ./build/boatlog2_replay_cli artifacts/phase11_fixture/partial_tail.bin artifacts/phase11_partial
+          grep -Eq '"trailing_bytes"[[:space:]]*:[[:space:]]*37' artifacts/phase11_partial/summary.json
+      - name: Assert semantic BOATLOG2 output mismatch is detected
+        run: |
+          set +e
+          ./build/boatlog2_replay_cli artifacts/phase11_fixture/step_mismatch.bin artifacts/phase11_step_mismatch
+          code=$?
+          set -e
+          test "$code" -eq 2
+          grep -Eq '"pass"[[:space:]]*:[[:space:]]*false' artifacts/phase11_step_mismatch/summary.json
+          grep -Eq '"step_mismatches"[[:space:]]*:[[:space:]]*1' artifacts/phase11_step_mismatch/summary.json
+      - name: Assert BOATLOG2 record CRC corruption is detected
+        run: |
+          set +e
+          ./build/boatlog2_replay_cli artifacts/phase11_fixture/crc_corrupt.bin artifacts/phase11_crc_corrupt
+          code=$?
+          set -e
+          test "$code" -eq 2
+          grep -Eq '"crc_failures"[[:space:]]*:[[:space:]]*1' artifacts/phase11_crc_corrupt/summary.json
       - name: Upload simulated CoreS3 screen frames and traces
         uses: actions/upload-artifact@v4
         with:
