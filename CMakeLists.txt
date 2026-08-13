@@ -67,6 +67,22 @@ add_library(boatlog_replay
 )
 target_include_directories(boatlog_replay PUBLIC lib/replay)
 
+# Phase 11 records every external production-controller event plus the expected
+# result/output. Replaying the fixed BOATLOG2 stream reconstructs Controller
+# state and executes the imported production Controller::step() deterministically.
+add_library(boatlog2_replay
+  lib/replay/BoatLog2Replay.cpp
+)
+target_include_directories(boatlog2_replay PUBLIC
+  lib/replay
+  lib/production_control
+  lib/boat_protocol
+)
+target_link_libraries(boatlog2_replay PUBLIC
+  production_control_host
+  boat_protocol_host
+)
+
 add_executable(cores3_sim simulator/main.cpp)
 target_link_libraries(cores3_sim PRIVATE app_logic virtual_hw)
 
@@ -95,6 +111,16 @@ add_executable(boatlog_replay_cli
   simulator/boatlog_replay_main.cpp
 )
 target_link_libraries(boatlog_replay_cli PRIVATE boatlog_replay)
+
+add_executable(boatlog2_fixture
+  simulator/boatlog2_fixture_main.cpp
+)
+target_link_libraries(boatlog2_fixture PRIVATE boatlog2_replay)
+
+add_executable(boatlog2_replay_cli
+  simulator/boatlog2_replay_main.cpp
+)
+target_link_libraries(boatlog2_replay_cli PRIVATE boatlog2_replay)
 
 add_executable(app_tests tests/test_app.cpp)
 target_link_libraries(app_tests PRIVATE app_logic)
@@ -129,6 +155,9 @@ target_link_libraries(phase9_tests PRIVATE production_command_link)
 add_executable(phase10_tests tests/test_phase10.cpp)
 target_link_libraries(phase10_tests PRIVATE boatlog_replay)
 
+add_executable(phase11_tests tests/test_phase11.cpp)
+target_link_libraries(phase11_tests PRIVATE boatlog2_replay)
+
 enable_testing()
 add_test(NAME app_logic_tests COMMAND app_tests)
 add_test(NAME virtual_hardware_tests COMMAND virtual_hw_tests)
@@ -141,3 +170,4 @@ add_test(NAME phase7_dual_uart_tests COMMAND phase7_tests)
 add_test(NAME phase8_production_protocol_tests COMMAND phase8_tests)
 add_test(NAME phase9_production_command_telemetry_tests COMMAND phase9_tests)
 add_test(NAME phase10_boatlog_replay_tests COMMAND phase10_tests)
+add_test(NAME phase11_boatlog2_deterministic_replay_tests COMMAND phase11_tests)
