@@ -1,5 +1,6 @@
 #include "BoatLog2Replay.h"
 
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
